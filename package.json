@@ -1,0 +1,21 @@
+{
+  "name": "halal-bsc-trading-bot",
+  "version": "1.0.0",
+  "description": "Halal BEP20 spot trading bot with multi-TP strategy on BSC",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "node src/main.js",
+    "dev": "node --watch src/main.js"
+  },
+  "dependencies": {
+    "ethers": "^6.13.0",
+    "axios": "^1.7.2",
+    "dotenv": "^16.4.5",
+    "chalk": "^4.1.2",
+    "node-telegram-bot-api": "^0.66.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT"
+}
