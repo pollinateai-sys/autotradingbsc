@@ -1,9 +1,8 @@
 // ============================================================
 //  YOUR PERSONAL HALAL TOKEN LIST
-//  Only add tokens YOU have personally verified as halal.
-//  Set enabled: false to pause without removing.
+//  Add tokens YOU have verified as halal.
+//  enabled: false = paused (not traded until you enable it)
 // ============================================================
-
 const HALAL_TOKENS = [
   {
     symbol:   "BTCB",
@@ -36,12 +35,6 @@ const HALAL_TOKENS = [
     enabled:  true,
   },
   // ── ADD YOUR OWN VERIFIED HALAL TOKENS BELOW ─────────────
-  // {
-  //   symbol:   "TOKEN",
-  //   name:     "Full Token Name",
-  //   contract: "0x...",
-  //   enabled:  true,
-  // },
+  // { symbol: "TOKEN", name: "Full Name", contract: "0x...", enabled: true },
 ];
-
 module.exports = HALAL_TOKENS;
