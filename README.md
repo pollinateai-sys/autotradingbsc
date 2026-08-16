@@ -50,6 +50,36 @@ npm test
 ```
 Runs 41 checks against mocked wallet/chain/market data — no real funds or network calls involved.
 
+> **`npm install` is required before `npm start` will work.** If you see
+> `Error: Cannot find module 'dotenv'` (or any other module), it means step 2 was skipped —
+> just run `npm install` and try again.
+
+---
+
+## 📱 Running on Termux (Android)
+
+Works fine, with one catch: **don't clone or run the project inside `~/storage/...`**
+(Termux's link into shared Android storage). That path is backed by Android's storage
+layer, not a normal Linux filesystem, and `npm install` there is either extremely slow
+or fails outright — this is what causes the `Cannot find module` error even right after
+installing.
+
+Use Termux's own home directory instead:
+```bash
+cd ~                          # Termux's native filesystem, NOT ~/storage/...
+git clone https://github.com/pollinateai-sys/autotradingbsc
+cd autotradingbsc
+npm install
+cp .env.example .env
+nano .env                     # fill in your values, Ctrl+O then Enter to save, Ctrl+X to exit
+npm start
+```
+If you need files from shared storage (e.g. copying `.env` in from Downloads), copy them
+in with `cp ~/storage/downloads/.env .env` rather than running the project from there.
+
+To keep it running after closing Termux, use a session manager like `tmux` or
+`termux-wake-lock` + running it inside a `screen`/`tmux` session so Android doesn't kill it.
+
 ---
 
 ## 📐 Strategies

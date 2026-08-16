@@ -12,6 +12,22 @@
 //  plus the /api/cron/scan route on a schedule instead.
 // ============================================================
 
+// ── Friendly check: catch the #1 first-run mistake ──────────
+// (running `npm start` before `npm install`) with a clear fix
+// instead of Node's raw MODULE_NOT_FOUND stack trace. Checked
+// before any third-party require, so it doesn't matter which
+// package Node would have hit first.
+const fs   = require("fs");
+const path = require("path");
+if (!fs.existsSync(path.join(__dirname, "node_modules"))) {
+  console.error("\n❌ Dependencies are not installed yet.\n");
+  console.error("   Run this first, from inside the autotradingbsc folder:\n");
+  console.error("     npm install\n");
+  console.error("   Then run:\n");
+  console.error("     npm start\n");
+  process.exit(1);
+}
+
 require("dotenv").config();
 
 const app = require("./api/index");
