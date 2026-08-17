@@ -1,6 +1,9 @@
 // ============================================================
-//  MOCK PANCAKESWAP — simulated swaps with controllable price
-//  Lets the test script move price up/down to trigger TP/SL.
+//  MOCK PANCAKESWAP — simulated swaps with controllable price.
+//  Signatures mirror the real api/lib/pancakeswap.js exactly:
+//  read functions take a provider (ignored here), write functions
+//  take a signerWallet whose _profileId tells us whose in-memory
+//  balance to adjust.
 // ============================================================
 const wallet = require("./wallet");
 
@@ -15,35 +18,37 @@ function _movePricePercent(contract, pct) {
 }
 function _getEntryBasePrice(contract) { return FAKE_PRICES[contract] || DEFAULT_BASE_PRICE; }
 
-async function getCurrentPriceBnb(contract) {
+async function getCurrentPriceBnb(provider, contract) {
   if (FAKE_PRICES[contract] === undefined) FAKE_PRICES[contract] = DEFAULT_BASE_PRICE;
   return FAKE_PRICES[contract];
 }
-async function getQuote(contract, bnbAmount) {
-  const price = await getCurrentPriceBnb(contract);
+async function getQuote(provider, contract, bnbAmount) {
+  const price = await getCurrentPriceBnb(provider, contract);
   return BigInt(Math.floor((bnbAmount / price) * 1e18));
 }
 
-async function buyTokenWithBnb(contract, bnbAmount, maxSlippage = 1.0, autoTrade = true) {
-  const price = await getCurrentPriceBnb(contract);
+async function buyTokenWithBnb(signerWallet, contract, bnbAmount, maxSlippage = 1.0, autoTrade = true) {
+  const profileId = signerWallet._profileId;
+  const price = await getCurrentPriceBnb(null, contract);
   const tokenAmount = bnbAmount / price;
 
-  wallet._adjustBnbBalance(-bnbAmount);
-  const current = await wallet.getTokenBalance(contract);
-  wallet._setTokenBalance(contract, current + tokenAmount);
+  wallet._adjustBnbBalance(profileId, -bnbAmount);
+  const current = await wallet.getTokenBalance(profileId, contract);
+  wallet._setTokenBalance(profileId, contract, current + tokenAmount);
 
   txCounter++;
   if (!autoTrade) return { hash: "SIMULATED_" + txCounter, simulated: true };
   return { hash: "0x" + "b".repeat(10) + txCounter.toString().padStart(54, "0"), simulated: false };
 }
 
-async function sellTokenForBnb(contract, tokenAmount, autoTrade = true) {
-  const price = await getCurrentPriceBnb(contract);
+async function sellTokenForBnb(signerWallet, contract, tokenAmount, autoTrade = true) {
+  const profileId = signerWallet._profileId;
+  const price = await getCurrentPriceBnb(null, contract);
   const bnbOut = tokenAmount * price;
 
-  const current = await wallet.getTokenBalance(contract);
-  wallet._setTokenBalance(contract, Math.max(0, current - tokenAmount));
-  wallet._adjustBnbBalance(bnbOut);
+  const current = await wallet.getTokenBalance(profileId, contract);
+  wallet._setTokenBalance(profileId, contract, Math.max(0, current - tokenAmount));
+  wallet._adjustBnbBalance(profileId, bnbOut);
 
   txCounter++;
   if (!autoTrade) return { hash: "SIMULATED_" + txCounter, simulated: true };

@@ -1,22 +1,22 @@
 // ============================================================
 //  SERVER.JS — Entry point for persistent hosting
-//  (VPS, Railway, Render, Docker, your own PC — anything that
-//  can run "node server.js" and keep it alive 24/7)
+//  (VPS, Railway, Render, Docker, Termux, your own PC — anything
+//  that can run "node server.js" and keep it alive 24/7)
 //
-//  This starts:
-//   1. The Express web server (dashboard + API)
-//   2. A fast loop that checks open positions for SL/TP
-//   3. A slower loop that scans for new entries (if botRunning)
+//  Multi-profile: one server, any number of people, each with
+//  their own wallet/settings/tokens/positions. A single tick
+//  loop walks every profile every POSITION_CHECK_INTERVAL_SECONDS:
+//   1. Always checks that profile's open positions for SL/TP —
+//      even if their bot is "stopped" (protects existing capital)
+//   2. Scans for new entries only if botRunning=true, a wallet is
+//      connected, AND that profile's own scanIntervalMinutes has
+//      elapsed since its last scan
 //
-//  NOT needed on Vercel — Vercel uses api/index.js directly
-//  plus the /api/cron/scan route on a schedule instead.
+//  NOT needed on Vercel — Vercel uses api/index.js directly plus
+//  the /api/cron/scan route (scans all profiles) on a schedule.
 // ============================================================
 
 // ── Friendly check: catch the #1 first-run mistake ──────────
-// (running `npm start` before `npm install`) with a clear fix
-// instead of Node's raw MODULE_NOT_FOUND stack trace. Checked
-// before any third-party require, so it doesn't matter which
-// package Node would have hit first.
 const fs   = require("fs");
 const path = require("path");
 if (!fs.existsSync(path.join(__dirname, "node_modules"))) {
@@ -30,66 +30,82 @@ if (!fs.existsSync(path.join(__dirname, "node_modules"))) {
 
 require("dotenv").config();
 
+// ── Friendly check: ENCRYPTION_KEY must be valid before anything
+// that could touch a wallet runs, or the first "Connect Wallet"
+// click would fail with a confusing error deep in crypto.js.
+try {
+  require("./api/lib/crypto").getEncryptionKey();
+} catch (e) {
+  console.error(`\n❌ ${e.message}\n`);
+  process.exit(1);
+}
+
 const app = require("./api/index");
 const { checkAllPositions, scanForNewEntries } = require("./api/lib/scanner");
-const { getSettings, updateStats } = require("./api/lib/redis");
-const { getAddress, getBnbBalance } = require("./api/lib/wallet");
+const {
+  getAllProfileIds, getProfileMeta, getSettings, getStats, updateStats, hasWallet,
+} = require("./api/lib/redis");
 const telegram = require("./api/lib/telegram");
 
 const PORT = process.env.PORT || 3000;
-
-const POSITION_CHECK_SECONDS = parseInt(process.env.POSITION_CHECK_INTERVAL_SECONDS || "60");
+const TICK_SECONDS = parseInt(process.env.POSITION_CHECK_INTERVAL_SECONDS || "60");
 
 const BANNER = `
 ╔══════════════════════════════════════════════════════════╗
-║          HALAL BSC TRADING BOT — v2.0                    ║
-║          Spot Only | BEP20 | PancakeSwap V2               ║
+║          HALAL BSC TRADING BOT — v3.0                    ║
+║          Multi-profile · Spot Only · BEP20 · PancakeSwap  ║
 ║          No AI | No Leverage | No Interest                ║
 ╚══════════════════════════════════════════════════════════╝`;
 
-let scanTimer = null;
+let ticking = false;
 
-// ── Fast loop: always checks SL/TP on open positions ────────
-async function positionMonitorLoop() {
+async function tick() {
+  if (ticking) return; // don't overlap if a previous tick is still running
+  ticking = true;
   try {
-    const results = await checkAllPositions();
-    if (results.length > 0) {
-      console.log(`  🔎 Position check | ${results.length} position(s) evaluated`);
-      results.forEach(r => {
-        if (r.action && r.action !== "HOLD") {
-          console.log(`     → ${r.symbol}: ${r.action} (${r.changePct?.toFixed(2)}%)`);
+    const profileIds = await getAllProfileIds();
+    if (profileIds.length === 0) return;
+
+    for (const profileId of profileIds) {
+      try {
+        // 1. Always protect existing capital, regardless of botRunning
+        const exitResults = await checkAllPositions(profileId);
+        if (exitResults.length > 0) {
+          const meta = await getProfileMeta(profileId);
+          exitResults.forEach(r => {
+            if (r.action && r.action !== "HOLD") {
+              console.log(`  🔎 [${meta?.name || profileId}] ${r.symbol}: ${r.action} (${r.changePct?.toFixed(2)}%)`);
+            }
+          });
         }
-      });
+
+        // 2. New entries only if running, wallet connected, and this
+        //    profile's own scan interval has elapsed
+        const settings = await getSettings(profileId);
+        if (!settings.botRunning) continue;
+        if (!(await hasWallet(profileId))) continue;
+
+        const stats = await getStats(profileId);
+        const intervalMs = Math.max(1, settings.scanIntervalMinutes) * 60 * 1000;
+        const dueForScan = !stats.lastScan || (Date.now() - new Date(stats.lastScan).getTime()) >= intervalMs;
+
+        if (dueForScan) {
+          const meta = await getProfileMeta(profileId);
+          console.log(`  🔍 [${meta?.name || profileId}] Running entry scan...`);
+          const results = await scanForNewEntries(profileId);
+          console.log(
+            `  ✅ [${meta?.name || profileId}] Opened: ${results.opened.length} | ` +
+            `Skipped: ${results.skipped.length} | Errors: ${results.errors.length}`
+          );
+          await updateStats(profileId, { lastScan: new Date().toISOString() });
+        }
+      } catch (e) {
+        console.error(`  ❌ Tick error for profile ${profileId}:`, e.message);
+        await telegram.sendError(`Tick error (profile ${profileId}): ${e.message}`);
+      }
     }
-  } catch (e) {
-    console.error("  ❌ Position monitor error:", e.message);
-  }
-  setTimeout(positionMonitorLoop, POSITION_CHECK_SECONDS * 1000);
-}
-
-// ── Slower loop: scans for new entries (respects botRunning) ─
-async function scanLoop() {
-  try {
-    const settings = await getSettings();
-    if (settings.botRunning) {
-      console.log(`\n  🔍 Running full scan cycle...`);
-      const results = await scanForNewEntries();
-      console.log(
-        `  ✅ Scan complete | Opened: ${results.opened.length} | ` +
-        `Skipped: ${results.skipped.length} | Errors: ${results.errors.length}`
-      );
-      await updateStats({ lastScan: new Date().toISOString() });
-    } else {
-      console.log(`  ⏸️  Bot stopped — skipping entry scan (positions still monitored)`);
-    }
-
-    const nextSettings = await getSettings();
-    const intervalMs   = Math.max(1, nextSettings.scanIntervalMinutes) * 60 * 1000;
-    scanTimer = setTimeout(scanLoop, intervalMs);
-
-  } catch (e) {
-    console.error("  ❌ Scan loop error:", e.message);
-    scanTimer = setTimeout(scanLoop, 60 * 1000); // retry in 1 min on error
+  } finally {
+    ticking = false;
   }
 }
 
@@ -97,47 +113,32 @@ async function scanLoop() {
 async function start() {
   console.log(BANNER);
 
-  try {
-    const address = getAddress();
-    const balance = await getBnbBalance();
-    console.log(`  💼 Wallet    : ${address}`);
-    console.log(`  💰 Balance   : ${balance.toFixed(6)} BNB`);
-  } catch (e) {
-    console.error(`  ❌ Wallet error: ${e.message}`);
-    console.error(`  ⚠️  Set PRIVATE_KEY in your .env file.`);
-    process.exit(1);
-  }
-
-  const settings = await getSettings();
-  console.log(`  📐 Strategy  : ${settings.activeStrategy}`);
-  console.log(`  🔘 Bot state : ${settings.botRunning ? "RUNNING" : "STOPPED"}`);
-  console.log(`  💵 Bankroll  : ${settings.bankrollPercent}% per trade`);
-  console.log(`  📊 Auto-trade: ${settings.autoTrade ? "LIVE (real trades)" : "SIGNAL-ONLY (simulated)"}`);
+  const profileIds = await getAllProfileIds();
+  console.log(`  👥 Profiles registered: ${profileIds.length}`);
+  console.log(`  🔁 Tick interval      : every ${TICK_SECONDS}s (checks all profiles)`);
+  console.log(`  ℹ️  Each profile's own "Scan interval" setting controls how often`);
+  console.log(`     THAT profile looks for new entries; position monitoring runs`);
+  console.log(`     every tick for everyone with open positions, always.\n`);
 
   app.listen(PORT, () => {
-    console.log(`\n  ✅ Dashboard running at http://localhost:${PORT}`);
-    console.log(`  ✅ Position monitor: every ${POSITION_CHECK_SECONDS}s`);
-    console.log(`  ✅ Entry scanner   : every ${settings.scanIntervalMinutes} min (when bot is running)\n`);
+    console.log(`  ✅ Dashboard running at http://localhost:${PORT}\n`);
   });
 
-  telegram.sendInfo(`🤖 Bot server started\nWallet: ${getAddress()}\nStrategy: ${settings.activeStrategy}`);
+  await telegram.sendInfo(`🤖 Bot server started — ${profileIds.length} profile(s) registered`);
 
-  // Start both loops
-  positionMonitorLoop();
-  scanLoop();
+  tick();
+  setInterval(tick, TICK_SECONDS * 1000);
 }
 
 // ── Graceful shutdown ────────────────────────────────────────
 process.on("SIGINT", async () => {
   console.log("\n\n  ⛔ Shutting down gracefully...");
-  if (scanTimer) clearTimeout(scanTimer);
   await telegram.sendInfo("🛑 Bot server stopped (SIGINT)");
   process.exit(0);
 });
 
 process.on("SIGTERM", async () => {
   console.log("\n  ⛔ SIGTERM received — shutting down...");
-  if (scanTimer) clearTimeout(scanTimer);
   await telegram.sendInfo("🛑 Bot server stopped (SIGTERM)");
   process.exit(0);
 });
@@ -145,7 +146,7 @@ process.on("SIGTERM", async () => {
 process.on("uncaughtException", async (err) => {
   console.error("  ❌ Uncaught exception:", err);
   await telegram.sendError(`Uncaught exception: ${err.message}`);
-  // Don't exit — keep the dashboard alive, just log it
+  // Don't exit — keep the dashboard alive for other profiles, just log it
 });
 
 start().catch((e) => {

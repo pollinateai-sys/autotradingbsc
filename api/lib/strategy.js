@@ -1,12 +1,12 @@
 // ============================================================
-//  STRATEGY ENGINE
-//  Reads live settings from Redis (dashboard-editable).
-//  Opens/closes positions, tracks multi-TP progress.
+//  STRATEGY ENGINE — per profile
+//  Reads that profile's live settings from Redis. Opens/closes
+//  positions using that profile's own decrypted wallet.
 // ============================================================
 
 const { getStrategy }     = require("../config/strategies");
 const { buyTokenWithBnb, sellTokenForBnb, getCurrentPriceBnb } = require("./pancakeswap");
-const { getBnbBalance, getTokenBalance } = require("./wallet");
+const { getSignerWallet, getBnbBalance, getTokenBalance, getProvider } = require("./wallet");
 const {
   getPosition, setPosition, deletePosition,
   appendTradeLog, getSettings, updateStats, getStats,
@@ -16,11 +16,12 @@ const telegram = require("./telegram");
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // ────────────────────────────────────────────────────────────
-async function openPosition(token) {
-  const settings  = await getSettings();
+async function openPosition(profileId, token) {
+  const settings  = await getSettings(profileId);
   const strategy  = getStrategy(settings.activeStrategy);
+  const signer    = await getSignerWallet(profileId); // throws if no wallet connected
 
-  const bnbBalance  = await getBnbBalance();
+  const bnbBalance  = await getBnbBalance(profileId);
   const tradeAmount = parseFloat(((bnbBalance * settings.bankrollPercent) / 100).toFixed(6));
 
   if (tradeAmount < 0.001) throw new Error("Trade size too small (<0.001 BNB) — increase bankroll% or add funds");
@@ -28,11 +29,13 @@ async function openPosition(token) {
     throw new Error("Insufficient BNB (would breach gas reserve)");
   }
 
-  const result = await buyTokenWithBnb(token.contract, tradeAmount, settings.maxSlippagePercent, settings.autoTrade);
+  const result = await buyTokenWithBnb(signer, token.contract, tradeAmount, settings.maxSlippagePercent, settings.autoTrade);
   await sleep(3000);
 
-  const entryPriceBnb = await getCurrentPriceBnb(token.contract);
-  const tokenBalance  = settings.autoTrade ? await getTokenBalance(token.contract) : tradeAmount / (entryPriceBnb || 1);
+  const entryPriceBnb = await getCurrentPriceBnb(getProvider(), token.contract);
+  const tokenBalance  = settings.autoTrade
+    ? await getTokenBalance(profileId, token.contract)
+    : tradeAmount / (entryPriceBnb || 1);
 
   if (!entryPriceBnb) throw new Error("Could not read entry price after buy");
 
@@ -51,40 +54,41 @@ async function openPosition(token) {
     simulated:       result.simulated || false,
   };
 
-  await setPosition(token.symbol, position);
-  await appendTradeLog({
+  await setPosition(profileId, token.symbol, position);
+  await appendTradeLog(profileId, {
     type: "BUY", symbol: token.symbol, bnb: tradeAmount,
     price: entryPriceBnb, tx: result.hash, strategy: settings.activeStrategy,
     simulated: result.simulated || false,
   });
 
-  const stats = await getStats();
-  await updateStats({ totalTrades: (stats.totalTrades || 0) + 1 });
+  const stats = await getStats(profileId);
+  await updateStats(profileId, { totalTrades: (stats.totalTrades || 0) + 1 });
 
   await telegram.sendBuy(token.symbol, tradeAmount, entryPriceBnb, strategy);
   return position;
 }
 
 // ────────────────────────────────────────────────────────────
-async function checkAndExecuteExits(symbol) {
-  const position = await getPosition(symbol);
+async function checkAndExecuteExits(profileId, symbol) {
+  const position = await getPosition(profileId, symbol);
   if (!position || position.remainingTokens <= 0) return null;
 
-  const settings      = await getSettings();
-  const strategy      = getStrategy(position.strategyKey || settings.activeStrategy);
-  const currentPrice  = await getCurrentPriceBnb(position.contract);
+  const settings     = await getSettings(profileId);
+  const strategy     = getStrategy(position.strategyKey || settings.activeStrategy);
+  const currentPrice = await getCurrentPriceBnb(getProvider(), position.contract);
   if (!currentPrice) return null;
 
   const changePct = ((currentPrice - position.entryPriceBnb) / position.entryPriceBnb) * 100;
 
   // ── STOP LOSS ──────────────────────────────────────────
   if (changePct <= strategy.stopLoss && !position.slHit) {
-    const result = await sellTokenForBnb(position.contract, position.remainingTokens, settings.autoTrade);
-    await deletePosition(symbol);
-    await appendTradeLog({ type: "STOP_LOSS", symbol, changePct, tx: result.hash, simulated: result.simulated || false });
+    const signer = await getSignerWallet(profileId);
+    const result = await sellTokenForBnb(signer, position.contract, position.remainingTokens, settings.autoTrade);
+    await deletePosition(profileId, symbol);
+    await appendTradeLog(profileId, { type: "STOP_LOSS", symbol, changePct, tx: result.hash, simulated: result.simulated || false });
 
-    const stats = await getStats();
-    await updateStats({ losses: (stats.losses || 0) + 1 });
+    const stats = await getStats(profileId);
+    await updateStats(profileId, { losses: (stats.losses || 0) + 1 });
     await telegram.sendSL(symbol, changePct, result.hash);
     return { action: "STOP_LOSS", symbol, changePct, tx: result.hash };
   }
@@ -97,7 +101,8 @@ async function checkAndExecuteExits(symbol) {
       const sellAmount = parseFloat((position.totalTokens * tp.sellPercent / 100).toFixed(8));
       if (sellAmount <= 0 || sellAmount > position.remainingTokens) continue;
 
-      const result = await sellTokenForBnb(position.contract, sellAmount, settings.autoTrade);
+      const signer = await getSignerWallet(profileId);
+      const result = await sellTokenForBnb(signer, position.contract, sellAmount, settings.autoTrade);
       position.tpHit.push(i);
       position.remainingTokens = parseFloat((position.remainingTokens - sellAmount).toFixed(8));
       position.currentPrice    = currentPrice;
@@ -106,14 +111,14 @@ async function checkAndExecuteExits(symbol) {
         || position.remainingTokens < 0.000001;
 
       if (allDone) {
-        await deletePosition(symbol);
-        const stats = await getStats();
-        await updateStats({ wins: (stats.wins || 0) + 1 });
+        await deletePosition(profileId, symbol);
+        const stats = await getStats(profileId);
+        await updateStats(profileId, { wins: (stats.wins || 0) + 1 });
       } else {
-        await setPosition(symbol, position);
+        await setPosition(profileId, symbol, position);
       }
 
-      await appendTradeLog({
+      await appendTradeLog(profileId, {
         type: `TP${i+1}`, symbol, changePct, sellPct: tp.sellPercent,
         tx: result.hash, simulated: result.simulated || false,
       });
@@ -124,30 +129,31 @@ async function checkAndExecuteExits(symbol) {
 
   // No action — just update live price snapshot
   position.currentPrice = currentPrice;
-  await setPosition(symbol, position);
+  await setPosition(profileId, symbol, position);
   return { action: "HOLD", symbol, changePct, currentPrice };
 }
 
 // ────────────────────────────────────────────────────────────
 // Manual full close — used by the "Close Position" button in UI
-async function closePositionManual(symbol) {
-  const position = await getPosition(symbol);
+async function closePositionManual(profileId, symbol) {
+  const position = await getPosition(profileId, symbol);
   if (!position) throw new Error(`No open position for ${symbol}`);
 
-  const settings     = await getSettings();
-  const currentPrice = await getCurrentPriceBnb(position.contract);
+  const settings      = await getSettings(profileId);
+  const currentPrice  = await getCurrentPriceBnb(getProvider(), position.contract);
   const changePct     = currentPrice
     ? ((currentPrice - position.entryPriceBnb) / position.entryPriceBnb) * 100
     : 0;
 
-  const result = await sellTokenForBnb(position.contract, position.remainingTokens, settings.autoTrade);
-  await deletePosition(symbol);
-  await appendTradeLog({
+  const signer = await getSignerWallet(profileId);
+  const result = await sellTokenForBnb(signer, position.contract, position.remainingTokens, settings.autoTrade);
+  await deletePosition(profileId, symbol);
+  await appendTradeLog(profileId, {
     type: "MANUAL_CLOSE", symbol, changePct, tx: result.hash, simulated: result.simulated || false,
   });
 
-  const stats = await getStats();
-  await updateStats(changePct >= 0 ? { wins: (stats.wins || 0) + 1 } : { losses: (stats.losses || 0) + 1 });
+  const stats = await getStats(profileId);
+  await updateStats(profileId, changePct >= 0 ? { wins: (stats.wins || 0) + 1 } : { losses: (stats.losses || 0) + 1 });
   await telegram.sendInfo(`🖐️ Manual close — ${symbol} | P&L: ${changePct.toFixed(2)}%`);
 
   return { symbol, changePct, tx: result.hash };

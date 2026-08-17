@@ -1,23 +1,16 @@
 // ============================================================
-//  SETTINGS ROUTES
-//  GET  /api/settings          → current settings + available strategies
-//  POST /api/settings/update   → patch settings (strategy, bankroll%, etc)
-//  POST /api/settings/start    → set botRunning = true
+//  SETTINGS ROUTES (per profile)
+//  GET  /api/settings          → this profile's settings + strategies
+//  POST /api/settings/update   → patch settings
+//  POST /api/settings/start    → set botRunning = true (needs wallet)
 //  POST /api/settings/stop     → set botRunning = false
 // ============================================================
 
 const express = require("express");
 const router  = express.Router();
-const { getSettings, updateSettings } = require("../lib/redis");
+const { requireProfile } = require("../middleware/auth");
+const { getSettings, updateSettings, hasWallet } = require("../lib/redis");
 const { STRATEGIES, getStrategy } = require("../config/strategies");
-
-function auth(req, res, next) {
-  const secret = process.env.BOT_SECRET;
-  if (secret && req.headers["x-bot-secret"] !== secret) {
-    return res.status(401).json({ ok: false, error: "Unauthorized" });
-  }
-  next();
-}
 
 const ALLOWED_FIELDS = [
   "activeStrategy", "bankrollPercent", "maxOpenTrades",
@@ -25,9 +18,9 @@ const ALLOWED_FIELDS = [
   "botRunning", "scanIntervalMinutes", "minBnbReserve",
 ];
 
-router.get("/", async (req, res) => {
+router.get("/", requireProfile, async (req, res) => {
   try {
-    const settings = await getSettings();
+    const settings = await getSettings(req.profileId);
     res.json({
       ok: true,
       settings,
@@ -38,7 +31,7 @@ router.get("/", async (req, res) => {
   }
 });
 
-router.post("/update", auth, async (req, res) => {
+router.post("/update", requireProfile, async (req, res) => {
   try {
     const patch = {};
     for (const key of ALLOWED_FIELDS) {
@@ -48,11 +41,8 @@ router.post("/update", auth, async (req, res) => {
       return res.status(400).json({ ok: false, error: "No valid fields provided" });
     }
 
-    // Validate strategy exists
-    if (patch.activeStrategy) {
-      getStrategy(patch.activeStrategy); // throws if invalid
-    }
-    // Validate numeric bounds
+    if (patch.activeStrategy) getStrategy(patch.activeStrategy); // throws if invalid
+
     if (patch.bankrollPercent !== undefined) {
       patch.bankrollPercent = Math.max(0.01, Math.min(10, parseFloat(patch.bankrollPercent)));
     }
@@ -69,25 +59,33 @@ router.post("/update", auth, async (req, res) => {
       patch.scanIntervalMinutes = Math.max(1, Math.min(1440, parseInt(patch.scanIntervalMinutes)));
     }
 
-    const updated = await updateSettings(patch);
+    // Can't turn the bot on without a wallet connected
+    if (patch.botRunning === true && !(await hasWallet(req.profileId))) {
+      return res.status(400).json({ ok: false, error: "Connect your wallet before starting the bot" });
+    }
+
+    const updated = await updateSettings(req.profileId, patch);
     res.json({ ok: true, settings: updated });
   } catch (e) {
     res.status(400).json({ ok: false, error: e.message });
   }
 });
 
-router.post("/start", auth, async (req, res) => {
+router.post("/start", requireProfile, async (req, res) => {
   try {
-    const updated = await updateSettings({ botRunning: true });
+    if (!(await hasWallet(req.profileId))) {
+      return res.status(400).json({ ok: false, error: "Connect your wallet before starting the bot" });
+    }
+    const updated = await updateSettings(req.profileId, { botRunning: true });
     res.json({ ok: true, settings: updated });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }
 });
 
-router.post("/stop", auth, async (req, res) => {
+router.post("/stop", requireProfile, async (req, res) => {
   try {
-    const updated = await updateSettings({ botRunning: false });
+    const updated = await updateSettings(req.profileId, { botRunning: false });
     res.json({ ok: true, settings: updated });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });

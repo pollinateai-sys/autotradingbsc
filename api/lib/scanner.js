@@ -1,29 +1,29 @@
 // ============================================================
-//  SCANNER — core scan cycle logic
-//  Shared by: manual "Scan Now" button, /api/cron/scan route,
-//  and the continuous background loop in server.js.
+//  SCANNER — per profile, plus a multi-profile runner
 //
-//  IMPORTANT SAFETY DESIGN:
-//  Position exit monitoring (Stop Loss / Take Profit) ALWAYS
-//  runs, even when the bot is "stopped" — because stopping the
-//  bot should mean "don't open new trades", not "abandon my
-//  open positions without protection".
-//  Only NEW entries are gated by botRunning.
+//  SAFETY DESIGN (unchanged from single-user version):
+//  Position exit monitoring (SL/TP) ALWAYS runs for a profile
+//  that has open positions, even when that profile's bot is
+//  "stopped" — stopping means "don't open new trades," not
+//  "abandon my open positions." Only new entries are gated by
+//  that profile's own botRunning flag.
 // ============================================================
 
-const { getTokens, getPositions, getSettings, updateStats } = require("./redis");
+const {
+  getTokens, getPositions, getSettings, updateStats, getAllProfileIds, hasWallet,
+} = require("./redis");
 const { checkAndExecuteExits, openPosition } = require("./strategy");
 const { getTokenInfo } = require("./market");
 const telegram = require("./telegram");
 
-// ── Always runs — protects existing capital ─────────────────
-async function checkAllPositions() {
-  const results    = [];
-  const positions  = await getPositions();
+// ── Always runs for a profile — protects its existing capital ──
+async function checkAllPositions(profileId) {
+  const results   = [];
+  const positions = await getPositions(profileId);
 
   for (const symbol of Object.keys(positions)) {
     try {
-      const result = await checkAndExecuteExits(symbol);
+      const result = await checkAndExecuteExits(profileId, symbol);
       if (result) results.push({ symbol, action: result.action, changePct: result.changePct });
     } catch (e) {
       results.push({ symbol, action: "ERROR", error: e.message });
@@ -33,16 +33,16 @@ async function checkAllPositions() {
   return results;
 }
 
-// ── Only runs when botRunning=true (or forced manually) ─────
-async function scanForNewEntries() {
+// ── Only runs when that profile's botRunning=true (or forced) ──
+async function scanForNewEntries(profileId) {
   const results  = { opened: [], skipped: [], errors: [] };
-  const settings = await getSettings();
-  const tokens   = await getTokens();
+  const settings = await getSettings(profileId);
+  const tokens   = await getTokens(profileId);
   const enabled  = tokens.filter(t => t.enabled);
 
   for (const token of enabled) {
     try {
-      const positions = await getPositions();
+      const positions = await getPositions(profileId);
       const count      = Object.keys(positions).length;
 
       if (count >= settings.maxOpenTrades) {
@@ -67,7 +67,7 @@ async function scanForNewEntries() {
         continue;
       }
 
-      const position = await openPosition(token);
+      const position = await openPosition(profileId, token);
       results.opened.push({ symbol: token.symbol, position });
 
     } catch (e) {
@@ -78,33 +78,47 @@ async function scanForNewEntries() {
   return results;
 }
 
-// ── Combined cycle used by routes + background loop ─────────
-async function runScanCycle({ force = false } = {}) {
+// ── Combined cycle for ONE profile (used by manual "Scan Now") ──
+async function runProfileCycle(profileId, { force = false } = {}) {
   const started  = Date.now();
-  const settings = await getSettings();
+  const settings = await getSettings(profileId);
+  const walletConnected = await hasWallet(profileId);
 
-  // Exits ALWAYS run, regardless of botRunning
-  const checked = await checkAllPositions();
+  const checked = await checkAllPositions(profileId);
 
   let entryResults = { opened: [], skipped: [], errors: [] };
   let entriesSkippedReason = null;
 
-  if (settings.botRunning || force) {
-    entryResults = await scanForNewEntries();
+  if (!walletConnected) {
+    entriesSkippedReason = "No wallet connected for this profile";
+  } else if (settings.botRunning || force) {
+    entryResults = await scanForNewEntries(profileId);
   } else {
     entriesSkippedReason = "Bot is stopped — new entries disabled (existing positions still monitored)";
   }
 
   const durationMs = Date.now() - started;
-  await updateStats({ lastScan: new Date().toISOString(), lastScanDurationMs: durationMs });
+  await updateStats(profileId, { lastScan: new Date().toISOString(), lastScanDurationMs: durationMs });
 
   return {
     ok: true,
     durationMs,
     botRunning: settings.botRunning,
+    walletConnected,
     entriesSkippedReason,
     results: { checked, ...entryResults },
   };
 }
 
-module.exports = { runScanCycle, checkAllPositions, scanForNewEntries };
+// ── Runs every profile once — used by external cron (Vercel/cron-job.org) ──
+async function runAllProfiles({ force = false } = {}) {
+  const ids     = await getAllProfileIds();
+  const results = {};
+  for (const id of ids) {
+    try { results[id] = await runProfileCycle(id, { force }); }
+    catch (e) { results[id] = { ok: false, error: e.message }; }
+  }
+  return { ok: true, profileCount: ids.length, results };
+}
+
+module.exports = { checkAllPositions, scanForNewEntries, runProfileCycle, runAllProfiles };

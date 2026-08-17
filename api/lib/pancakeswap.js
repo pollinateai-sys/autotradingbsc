@@ -1,10 +1,15 @@
 // ============================================================
 //  PANCAKESWAP V2 EXECUTOR
 //  Spot-only swaps. Exact-amount approvals only — never unlimited.
+//  Every function that signs a transaction takes an explicit
+//  `signerWallet` (that profile's decrypted ethers.Wallet) rather
+//  than reading a module-level singleton — this is what lets
+//  multiple profiles trade independently from the same server.
+//  Read-only price lookups take a plain provider instead, since
+//  no signing/profile identity is needed for those.
 // ============================================================
 
 const { ethers } = require("ethers");
-const { getWallet, getProvider } = require("./wallet");
 
 const ROUTER_ADDRESS = "0x10ED43C718714eb63d5aA57B78B54704E256024E";
 const WBNB           = "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c";
@@ -21,43 +26,40 @@ const ERC20_ABI = [
   "function balanceOf(address) view returns (uint256)",
 ];
 
-function getRouter() {
-  return new ethers.Contract(ROUTER_ADDRESS, ROUTER_ABI, getWallet());
-}
-
-async function getGasPrice() {
-  const fee = await getProvider().getFeeData();
+async function getGasPrice(providerLike) {
+  const fee = await providerLike.getFeeData();
   return (fee.gasPrice * 110n) / 100n;
 }
 
-async function getQuote(tokenAddress, bnbAmount) {
+async function getQuote(provider, tokenAddress, bnbAmount) {
   try {
-    const router   = getRouter();
+    const router   = new ethers.Contract(ROUTER_ADDRESS, ROUTER_ABI, provider);
     const amountIn = ethers.parseEther(bnbAmount.toString());
     const amounts  = await router.getAmountsOut(amountIn, [WBNB, tokenAddress]);
     return amounts[1];
   } catch { return null; }
 }
 
-async function getCurrentPriceBnb(tokenAddress) {
+async function getCurrentPriceBnb(provider, tokenAddress) {
   try {
-    const router  = getRouter();
+    const router  = new ethers.Contract(ROUTER_ADDRESS, ROUTER_ABI, provider);
     const amounts = await router.getAmountsOut(ethers.parseEther("1"), [tokenAddress, WBNB]);
     return parseFloat(ethers.formatEther(amounts[1]));
   } catch { return null; }
 }
 
 /**
- * Buy token with BNB.
+ * Buy token with BNB, signed by the given profile's wallet.
+ * @param {ethers.Wallet} signerWallet - decrypted signer for this profile
  * @param {boolean} autoTrade - if false, simulates only (no real tx)
  */
-async function buyTokenWithBnb(tokenAddress, bnbAmount, maxSlippage = 1.0, autoTrade = true) {
-  const wallet   = getWallet();
-  const router   = getRouter();
+async function buyTokenWithBnb(signerWallet, tokenAddress, bnbAmount, maxSlippage = 1.0, autoTrade = true) {
+  const provider = signerWallet.provider;
+  const router   = new ethers.Contract(ROUTER_ADDRESS, ROUTER_ABI, signerWallet);
   const amountIn = ethers.parseEther(bnbAmount.toString());
   const deadline = Math.floor(Date.now() / 1000) + 300;
 
-  const expectedOut = await getQuote(tokenAddress, bnbAmount);
+  const expectedOut = await getQuote(provider, tokenAddress, bnbAmount);
   if (!expectedOut) throw new Error("Could not get price quote — no liquidity pool found");
 
   const slipBps      = BigInt(Math.floor(maxSlippage * 100));
@@ -67,9 +69,9 @@ async function buyTokenWithBnb(tokenAddress, bnbAmount, maxSlippage = 1.0, autoT
     return { hash: "SIMULATED_" + Date.now(), simulated: true };
   }
 
-  const gasPrice = await getGasPrice();
+  const gasPrice = await getGasPrice(provider);
   const tx = await router.swapExactETHForTokensSupportingFeeOnTransferTokens(
-    amountOutMin, [WBNB, tokenAddress], wallet.address, deadline,
+    amountOutMin, [WBNB, tokenAddress], signerWallet.address, deadline,
     { value: amountIn, gasPrice, gasLimit: 350000n }
   );
   const receipt = await tx.wait();
@@ -78,14 +80,15 @@ async function buyTokenWithBnb(tokenAddress, bnbAmount, maxSlippage = 1.0, autoT
 }
 
 /**
- * Sell token for BNB.
+ * Sell token for BNB, signed by the given profile's wallet.
+ * @param {ethers.Wallet} signerWallet
  * @param {boolean} autoTrade - if false, simulates only (no real tx)
  */
-async function sellTokenForBnb(tokenAddress, tokenAmount, autoTrade = true) {
-  const wallet   = getWallet();
-  const router   = getRouter();
-  const erc20    = new ethers.Contract(tokenAddress, ERC20_ABI, wallet);
-  const decimals = await erc20.decimals();
+async function sellTokenForBnb(signerWallet, tokenAddress, tokenAmount, autoTrade = true) {
+  const provider  = signerWallet.provider;
+  const router    = new ethers.Contract(ROUTER_ADDRESS, ROUTER_ABI, signerWallet);
+  const erc20     = new ethers.Contract(tokenAddress, ERC20_ABI, signerWallet);
+  const decimals  = await erc20.decimals();
   const amountWei = ethers.parseUnits(tokenAmount.toFixed(Math.min(18, decimals)).toString(), decimals);
   const deadline  = Math.floor(Date.now() / 1000) + 300;
 
@@ -93,12 +96,12 @@ async function sellTokenForBnb(tokenAddress, tokenAmount, autoTrade = true) {
     return { hash: "SIMULATED_" + Date.now(), simulated: true };
   }
 
-  const gasPrice   = await getGasPrice();
-  const approveTx  = await erc20.approve(ROUTER_ADDRESS, amountWei, { gasPrice });
+  const gasPrice  = await getGasPrice(provider);
+  const approveTx = await erc20.approve(ROUTER_ADDRESS, amountWei, { gasPrice });
   await approveTx.wait();
 
   const tx = await router.swapExactTokensForETHSupportingFeeOnTransferTokens(
-    amountWei, 0n, [tokenAddress, WBNB], wallet.address, deadline,
+    amountWei, 0n, [tokenAddress, WBNB], signerWallet.address, deadline,
     { gasPrice, gasLimit: 350000n }
   );
   const receipt = await tx.wait();

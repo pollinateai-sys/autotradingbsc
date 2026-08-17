@@ -7,7 +7,7 @@
     "start": "node server.js",
     "dev": "node server.js",
     "vercel-dev": "vercel dev",
-    "test": "node test/test_direct.js && node test/test_http.js"
+    "test": "node test/test_crypto.js && node test/test_direct.js && node test/test_http.js"
   },
   "dependencies": {
     "ethers": "^6.13.0",

@@ -1,10 +1,17 @@
 // ============================================================
 //  UPSTASH REDIS CLIENT
-//  Stores ALL bot state: positions, trade log, settings, tokens.
-//  This is what makes the bot editable live from the dashboard.
+//  Every piece of trading state is scoped per-profile:
+//    profile:<id>:settings   profile:<id>:tokens
+//    profile:<id>:positions  profile:<id>:tradelog
+//    profile:<id>:stats      profile:<id>:wallet (encrypted)
+//  Plus a profile registry for API-key login:
+//    profiles:byhash:<sha256(apiKey)> -> profileId
+//    profiles:meta:<id>               -> { id, name, createdAt }
+//    profiles:all                     -> [ids...]
 // ============================================================
 
 const { Redis } = require("@upstash/redis");
+const { hashApiKey, newProfileId } = require("./crypto");
 const DEFAULT_TOKENS = require("../config/tokens");
 
 let redis;
@@ -12,9 +19,7 @@ let redis;
 function getRedis() {
   if (!redis) {
     if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
-      throw new Error(
-        "Missing UPSTASH_REDIS_REST_URL or UPSTASH_REDIS_REST_TOKEN env vars."
-      );
+      throw new Error("Missing UPSTASH_REDIS_REST_URL or UPSTASH_REDIS_REST_TOKEN env vars.");
     }
     redis = new Redis({
       url:   process.env.UPSTASH_REDIS_REST_URL,
@@ -30,110 +35,166 @@ async function getJson(key, fallback) {
   if (raw === null || raw === undefined) return fallback;
   return typeof raw === "string" ? JSON.parse(raw) : raw;
 }
+async function setJson(key, value) { await getRedis().set(key, JSON.stringify(value)); }
+async function delKey(key)         { await getRedis().del(key); }
 
-async function setJson(key, value) {
-  const r = getRedis();
-  await r.set(key, JSON.stringify(value));
+// ══════════════════════════════════════════════════════════
+//  PROFILE REGISTRY
+// ══════════════════════════════════════════════════════════
+
+async function createProfile(name, apiKey) {
+  const hash     = hashApiKey(apiKey);
+  const existing = await getJson(`profiles:byhash:${hash}`, null);
+  if (existing) throw new Error("This API key is already registered to a profile.");
+
+  const id = newProfileId();
+  const meta = { id, name, createdAt: new Date().toISOString() };
+  await setJson(`profiles:byhash:${hash}`, id);
+  await setJson(`profiles:meta:${id}`, meta);
+
+  const all = await getJson("profiles:all", []);
+  all.push(id);
+  await setJson("profiles:all", all);
+
+  return meta;
 }
 
-// ── POSITIONS ──────────────────────────────────────────────
-async function getPositions()          { return getJson("bot:positions", {}); }
-async function savePositions(positions){ return setJson("bot:positions", positions); }
-async function getPosition(symbol)     { const p = await getPositions(); return p[symbol] || null; }
-async function setPosition(symbol, data) {
-  const p = await getPositions(); p[symbol] = data; await savePositions(p);
+async function getProfileIdByApiKey(apiKey) {
+  return getJson(`profiles:byhash:${hashApiKey(apiKey)}`, null);
 }
-async function deletePosition(symbol) {
-  const p = await getPositions(); delete p[symbol]; await savePositions(p);
+async function getProfileMeta(profileId)  { return getJson(`profiles:meta:${profileId}`, null); }
+async function getAllProfileIds()         { return getJson("profiles:all", []); }
+
+// ══════════════════════════════════════════════════════════
+//  WALLET (encrypted private key storage)
+// ══════════════════════════════════════════════════════════
+
+async function getWalletRecord(profileId)      { return getJson(`profile:${profileId}:wallet`, null); }
+async function setWalletRecord(profileId, rec)  { return setJson(`profile:${profileId}:wallet`, rec); }
+async function deleteWalletRecord(profileId)    { return delKey(`profile:${profileId}:wallet`); }
+async function hasWallet(profileId)             { return (await getWalletRecord(profileId)) !== null; }
+
+// ══════════════════════════════════════════════════════════
+//  POSITIONS (per profile)
+// ══════════════════════════════════════════════════════════
+
+async function getPositions(profileId)           { return getJson(`profile:${profileId}:positions`, {}); }
+async function savePositions(profileId, p)        { return setJson(`profile:${profileId}:positions`, p); }
+async function getPosition(profileId, symbol) {
+  const p = await getPositions(profileId); return p[symbol] || null;
+}
+async function setPosition(profileId, symbol, data) {
+  const p = await getPositions(profileId); p[symbol] = data; await savePositions(profileId, p);
+}
+async function deletePosition(profileId, symbol) {
+  const p = await getPositions(profileId); delete p[symbol]; await savePositions(profileId, p);
 }
 
-// ── TRADE LOG ──────────────────────────────────────────────
-async function appendTradeLog(entry) {
-  const log = await getJson("bot:tradelog", []);
+// ══════════════════════════════════════════════════════════
+//  TRADE LOG (per profile)
+// ══════════════════════════════════════════════════════════
+
+async function appendTradeLog(profileId, entry) {
+  const log = await getJson(`profile:${profileId}:tradelog`, []);
   log.unshift({ ...entry, time: new Date().toISOString() });
-  await setJson("bot:tradelog", log.slice(0, 300));
+  await setJson(`profile:${profileId}:tradelog`, log.slice(0, 300));
 }
-async function getTradeLog() { return getJson("bot:tradelog", []); }
+async function getTradeLog(profileId) { return getJson(`profile:${profileId}:tradelog`, []); }
 
-// ── STATS ──────────────────────────────────────────────────
-async function getStats() {
-  return getJson("bot:stats", {
+// ══════════════════════════════════════════════════════════
+//  STATS (per profile)
+// ══════════════════════════════════════════════════════════
+
+async function getStats(profileId) {
+  return getJson(`profile:${profileId}:stats`, {
     totalTrades: 0, wins: 0, losses: 0, lastScan: null, lastScanDurationMs: null,
   });
 }
-async function updateStats(patch) {
-  const stats = await getStats();
+async function updateStats(profileId, patch) {
+  const stats   = await getStats(profileId);
   const updated = { ...stats, ...patch };
-  await setJson("bot:stats", updated);
+  await setJson(`profile:${profileId}:stats`, updated);
   return updated;
 }
 
-// ── SETTINGS (editable live from dashboard) ─────────────────
+// ══════════════════════════════════════════════════════════
+//  SETTINGS (per profile)
+// ══════════════════════════════════════════════════════════
+
 const DEFAULT_SETTINGS = {
   activeStrategy:      "A",
   bankrollPercent:     0.5,
   maxOpenTrades:       3,
   maxSlippagePercent:  1.0,
   minLiquidityUsd:     10000,
-  autoTrade:           true,   // false = signal-only, no real trades
-  botRunning:          false,  // master on/off switch
+  autoTrade:           true,
+  botRunning:          false,
   scanIntervalMinutes: 30,
   minBnbReserve:       0.01,
 };
 
-async function getSettings() {
-  const saved = await getJson("bot:settings", {});
+async function getSettings(profileId) {
+  const saved = await getJson(`profile:${profileId}:settings`, {});
   return { ...DEFAULT_SETTINGS, ...saved };
 }
-async function updateSettings(patch) {
-  const current = await getSettings();
+async function updateSettings(profileId, patch) {
+  const current = await getSettings(profileId);
   const updated = { ...current, ...patch };
-  await setJson("bot:settings", updated);
+  await setJson(`profile:${profileId}:settings`, updated);
   return updated;
 }
 
-// ── TOKENS (editable live — add by contract address) ────────
-async function getTokens() {
-  const saved = await getJson("bot:tokens", null);
+// ══════════════════════════════════════════════════════════
+//  TOKENS (per profile — seeded with defaults on first read)
+// ══════════════════════════════════════════════════════════
+
+async function getTokens(profileId) {
+  const saved = await getJson(`profile:${profileId}:tokens`, null);
   if (saved === null) {
-    // First run — seed with defaults from config/tokens.js
-    await setJson("bot:tokens", DEFAULT_TOKENS);
+    await setJson(`profile:${profileId}:tokens`, DEFAULT_TOKENS);
     return DEFAULT_TOKENS;
   }
   return saved;
 }
-async function saveTokens(tokens) { return setJson("bot:tokens", tokens); }
+async function saveTokens(profileId, tokens) { return setJson(`profile:${profileId}:tokens`, tokens); }
 
-async function addToken(token) {
-  const tokens = await getTokens();
+async function addToken(profileId, token) {
+  const tokens = await getTokens(profileId);
   const exists = tokens.find(t => t.contract.toLowerCase() === token.contract.toLowerCase());
   if (exists) throw new Error(`Token ${token.contract} already in list as ${exists.symbol}`);
   tokens.push(token);
-  await saveTokens(tokens);
+  await saveTokens(profileId, tokens);
   return tokens;
 }
-
-async function removeToken(symbol) {
-  const tokens = await getTokens();
+async function removeToken(profileId, symbol) {
+  const tokens   = await getTokens(profileId);
   const filtered = tokens.filter(t => t.symbol !== symbol);
-  await saveTokens(filtered);
+  await saveTokens(profileId, filtered);
   return filtered;
 }
-
-async function toggleToken(symbol, enabled) {
-  const tokens = await getTokens();
+async function toggleToken(profileId, symbol, enabled) {
+  const tokens = await getTokens(profileId);
   const t = tokens.find(t => t.symbol === symbol);
   if (!t) throw new Error(`Token ${symbol} not found`);
   t.enabled = enabled;
-  await saveTokens(tokens);
+  await saveTokens(profileId, tokens);
   return t;
 }
 
 module.exports = {
   getRedis,
+  // profiles
+  createProfile, getProfileIdByApiKey, getProfileMeta, getAllProfileIds,
+  // wallet
+  getWalletRecord, setWalletRecord, deleteWalletRecord, hasWallet,
+  // positions
   getPositions, savePositions, getPosition, setPosition, deletePosition,
+  // trade log
   appendTradeLog, getTradeLog,
+  // stats
   getStats, updateStats,
+  // settings
   getSettings, updateSettings,
+  // tokens
   getTokens, saveTokens, addToken, removeToken, toggleToken,
 };

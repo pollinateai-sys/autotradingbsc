@@ -1,7 +1,8 @@
 // ============================================================
 //  HALAL BSC TRADING BOT — Express App
-//  Works both as a Vercel serverless function AND as a normal
-//  Node server (see server.js) for VPS / Railway / Render / Docker.
+//  Multi-profile: each person authenticates with their own
+//  personal API key (x-api-key header), which scopes every
+//  route to their own wallet, settings, tokens, and positions.
 // ============================================================
 
 const express = require("express");
@@ -12,12 +13,14 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, "../public")));
 
 // ── Routes ────────────────────────────────────────────────
+app.use("/api/profiles",  require("./routes/profiles"));
+app.use("/api/wallet",    require("./routes/wallet"));
 app.use("/api/status",    require("./routes/status"));
 app.use("/api/trade",     require("./routes/trade"));
 app.use("/api/positions", require("./routes/positions"));
 app.use("/api/tokens",    require("./routes/tokens"));
 app.use("/api/settings",  require("./routes/settings"));
-app.use("/api",           require("./routes/scan")); // /api/cron/scan + /api/scan/now
+app.use("/api",           require("./routes/scan")); // /api/scan/now + /api/cron/scan
 
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "../public/index.html"));

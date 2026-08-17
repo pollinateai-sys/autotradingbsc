@@ -1,29 +1,31 @@
 // ============================================================
-//  POSITIONS ROUTES
+//  POSITIONS ROUTES (per profile)
 //  GET /api/positions      → open positions enriched with live price
 //  GET /api/positions/log  → trade history
 // ============================================================
 
 const express = require("express");
 const router  = express.Router();
+const { requireProfile } = require("../middleware/auth");
 const { getPositions, getTradeLog } = require("../lib/redis");
 const { getCurrentPriceBnb } = require("../lib/pancakeswap");
+const { getProvider } = require("../lib/wallet");
 const { getStrategy } = require("../config/strategies");
 
-router.get("/", async (req, res) => {
+router.get("/", requireProfile, async (req, res) => {
   try {
-    const positions = await getPositions();
+    const positions = await getPositions(req.profileId);
     const symbols    = Object.keys(positions);
+    const provider   = getProvider();
 
     const enriched = await Promise.all(symbols.map(async (symbol) => {
       const pos   = positions[symbol];
-      const price = await getCurrentPriceBnb(pos.contract).catch(() => null);
+      const price = await getCurrentPriceBnb(provider, pos.contract).catch(() => null);
       const strategy = getStrategy(pos.strategyKey);
       const changePct = price
         ? ((price - pos.entryPriceBnb) / pos.entryPriceBnb) * 100
         : null;
 
-      // Figure out next TP target
       const nextTpIndex = strategy.takeProfits.findIndex((_, i) => !pos.tpHit.includes(i));
       const nextTp = nextTpIndex >= 0 ? strategy.takeProfits[nextTpIndex] : null;
 
@@ -45,9 +47,9 @@ router.get("/", async (req, res) => {
   }
 });
 
-router.get("/log", async (req, res) => {
+router.get("/log", requireProfile, async (req, res) => {
   try {
-    const log = await getTradeLog();
+    const log = await getTradeLog(req.profileId);
     res.json({ ok: true, log, count: log.length });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
