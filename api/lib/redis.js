@@ -33,9 +33,14 @@ async function getJson(key, fallback) {
   const r   = getRedis();
   const raw = await r.get(key);
   if (raw === null || raw === undefined) return fallback;
-  return typeof raw === "string" ? JSON.parse(raw) : raw;
+  // @upstash/redis auto-serializes on set() and auto-deserializes on get()
+  // (see their docs) — do NOT JSON.stringify/parse ourselves on top of that,
+  // it double-encodes and corrupts anything that round-trips through a
+  // primitive (booleans/numbers/plain strings), which is where this bug
+  // came from originally. Just trust what the SDK gives back.
+  return raw;
 }
-async function setJson(key, value) { await getRedis().set(key, JSON.stringify(value)); }
+async function setJson(key, value) { await getRedis().set(key, value); }
 async function delKey(key)         { await getRedis().del(key); }
 
 // ══════════════════════════════════════════════════════════
