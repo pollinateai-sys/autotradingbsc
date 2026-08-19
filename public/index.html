@@ -1427,6 +1427,9 @@ async function deleteProfileById(profileId, label) {
     await refreshProfiles();
   } catch (e) { toast(e.message, true); }
 }
+// Expose to window so the inline onclick in the dynamically rendered
+// table row can reach it (the rest of the JS lives inside an IIFE)
+window.deleteProfileById = deleteProfileById;
 
 async function refreshAll(){
   await Promise.all([refreshStatus(), refreshTokens(), refreshPositions(), refreshHistory()]);
