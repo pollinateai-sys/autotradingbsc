@@ -4,14 +4,17 @@
 //    profile:<id>:settings   profile:<id>:tokens
 //    profile:<id>:positions  profile:<id>:tradelog
 //    profile:<id>:stats      profile:<id>:wallet (encrypted)
-//  Plus a profile registry for API-key login:
-//    profiles:byhash:<sha256(apiKey)> -> profileId
-//    profiles:meta:<id>               -> { id, name, createdAt }
-//    profiles:all                     -> [ids...]
+//  Plus a profile registry for username/password login:
+//    profiles:byusername:<lowercased username> -> profileId
+//    profiles:bytoken:<sha256(sessionToken)>    -> profileId
+//      (one entry PER LOGIN — a profile can have several valid
+//      tokens at once, one per device, none of them ever expire)
+//    profiles:meta:<id> -> { id, username, passwordHash, createdAt }
+//    profiles:all       -> [ids...]
 // ============================================================
 
 const { Redis } = require("@upstash/redis");
-const { hashApiKey, newProfileId } = require("./crypto");
+const { hashPassword, verifyPassword, hashToken, generateSessionToken, newProfileId } = require("./crypto");
 const DEFAULT_TOKENS = require("../config/tokens");
 
 let redis;
@@ -44,31 +47,74 @@ async function setJson(key, value) { await getRedis().set(key, value); }
 async function delKey(key)         { await getRedis().del(key); }
 
 // ══════════════════════════════════════════════════════════
-//  PROFILE REGISTRY
+//  PROFILE REGISTRY — username + password, permanent sessions
 // ══════════════════════════════════════════════════════════
 
-async function createProfile(name, apiKey) {
-  const hash     = hashApiKey(apiKey);
-  const existing = await getJson(`profiles:byhash:${hash}`, null);
-  if (existing) throw new Error("This API key is already registered to a profile.");
+function normalizeUsername(u) { return String(u || "").trim().toLowerCase(); }
 
-  const id = newProfileId();
-  const meta = { id, name, createdAt: new Date().toISOString() };
-  await setJson(`profiles:byhash:${hash}`, id);
+/** Create a new profile. Returns { profile, sessionToken } — the token is
+ *  shown to the caller exactly once here; only its hash is ever stored. */
+async function registerProfile(username, password) {
+  const uname = normalizeUsername(username);
+  if (uname.length < 3) throw new Error("Username must be at least 3 characters.");
+  if (!/^[a-z0-9_.\-]+$/.test(uname)) {
+    throw new Error("Username can only contain letters, numbers, dots, dashes and underscores.");
+  }
+  if (!password || password.length < 8) throw new Error("Password must be at least 8 characters.");
+
+  const existing = await getJson(`profiles:byusername:${uname}`, null);
+  if (existing) throw new Error("That username is already taken.");
+
+  const id           = newProfileId();
+  const passwordHash = await hashPassword(password);
+  const meta = { id, username: String(username).trim(), passwordHash, createdAt: new Date().toISOString() };
+
+  await setJson(`profiles:byusername:${uname}`, id);
   await setJson(`profiles:meta:${id}`, meta);
 
   const all = await getJson("profiles:all", []);
   all.push(id);
   await setJson("profiles:all", all);
 
-  return meta;
+  const sessionToken = await issueSessionToken(id);
+  return { profile: { id, username: meta.username }, sessionToken };
 }
 
-async function getProfileIdByApiKey(apiKey) {
-  return getJson(`profiles:byhash:${hashApiKey(apiKey)}`, null);
+/** Verify username/password and issue a brand new, permanent session
+ *  token for this login (previous tokens on other devices stay valid too). */
+async function loginProfile(username, password) {
+  const uname     = normalizeUsername(username);
+  const profileId = await getJson(`profiles:byusername:${uname}`, null);
+  if (!profileId) throw new Error("Incorrect username or password.");
+
+  const meta = await getJson(`profiles:meta:${profileId}`, null);
+  if (!meta) throw new Error("Incorrect username or password.");
+
+  const ok = await verifyPassword(password, meta.passwordHash);
+  if (!ok) throw new Error("Incorrect username or password.");
+
+  const sessionToken = await issueSessionToken(profileId);
+  return { profile: { id: profileId, username: meta.username }, sessionToken };
 }
-async function getProfileMeta(profileId)  { return getJson(`profiles:meta:${profileId}`, null); }
-async function getAllProfileIds()         { return getJson("profiles:all", []); }
+
+/** Mint a new session token for a profile. Never expires — each one stays
+ *  valid until the account itself is gone. */
+async function issueSessionToken(profileId) {
+  const token = generateSessionToken();
+  await setJson(`profiles:bytoken:${hashToken(token)}`, profileId);
+  return token;
+}
+
+async function getProfileIdByToken(token) {
+  return getJson(`profiles:bytoken:${hashToken(token)}`, null);
+}
+async function getProfileMeta(profileId) {
+  const meta = await getJson(`profiles:meta:${profileId}`, null);
+  if (!meta) return null;
+  const { passwordHash, ...safe } = meta; // never let the hash leave this module
+  return safe;
+}
+async function getAllProfileIds()        { return getJson("profiles:all", []); }
 
 // ══════════════════════════════════════════════════════════
 //  WALLET (encrypted private key storage)
@@ -134,7 +180,7 @@ const DEFAULT_SETTINGS = {
   minLiquidityUsd:     10000,
   autoTrade:           true,
   botRunning:          false,
-  scanIntervalMinutes: 30,
+  scanIntervalSeconds: 5,     // DexScreener poll cadence for new-entry scanning
   minBnbReserve:       0.01,
 };
 
@@ -188,8 +234,8 @@ async function toggleToken(profileId, symbol, enabled) {
 
 module.exports = {
   getRedis,
-  // profiles
-  createProfile, getProfileIdByApiKey, getProfileMeta, getAllProfileIds,
+  // profiles (username/password + permanent session tokens)
+  registerProfile, loginProfile, getProfileIdByToken, getProfileMeta, getAllProfileIds,
   // wallet
   getWalletRecord, setWalletRecord, deleteWalletRecord, hasWallet,
   // positions

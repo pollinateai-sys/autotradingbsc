@@ -418,9 +418,10 @@
   .gate-box input{
     width:100%; background:var(--surface-2); border:1px solid var(--border);
     color:var(--text); padding:11px 12px; border-radius:var(--radius-sm);
-    font-family:var(--font-mono); font-size:13px; margin-bottom:12px;
+    font-family:var(--font-ui); font-size:13px; margin-bottom:10px; display:block;
   }
-  .gate-box input:focus{ border-color:var(--jade); }
+  .gate-box input:focus{ border-color:var(--jade); outline:none; }
+  .gate-box input:last-of-type{ margin-bottom:14px; }
   .gate-actions{ display:flex; gap:10px; }
   .gate-actions .btn{ flex:1; justify-content:center; }
 
@@ -471,16 +472,17 @@
   <div class="gate-box">
     <div class="brand-mark"><span class="star8"></span></div>
     <h2 id="gateTitle">Welcome</h2>
-    <p id="gateSub">This bot supports multiple people, each with their own wallet, strategy, and history. Sign in with your personal API key, or create a new profile.</p>
+    <p id="gateSub">Each person has their own profile — wallet, strategy, and trade history completely separate from everyone else.</p>
 
     <div class="gate-tabs">
-      <button class="gate-tab active" data-tab="login">I have a key</button>
-      <button class="gate-tab" data-tab="create">Create profile</button>
+      <button class="gate-tab active" data-tab="login">Sign in</button>
+      <button class="gate-tab" data-tab="create">Create account</button>
     </div>
 
     <!-- Login pane -->
     <div id="gateLoginPane">
-      <input type="password" id="loginKeyInput" placeholder="Your personal API key" autocomplete="off">
+      <input type="text" id="loginUsernameInput" placeholder="Username" autocomplete="username">
+      <input type="password" id="loginPasswordInput" placeholder="Password" autocomplete="current-password">
       <div class="gate-actions">
         <button class="btn btn-primary" id="loginSubmit" style="flex:1;">Sign in</button>
       </div>
@@ -489,14 +491,12 @@
 
     <!-- Create pane -->
     <div id="gateCreatePane" style="display:none;">
-      <input type="text" id="createNameInput" placeholder="Your name (e.g. Ali)" autocomplete="off">
-      <div class="key-row">
-        <input type="text" id="createKeyInput" placeholder="Choose a personal API key (8+ chars)" autocomplete="off">
-        <button class="btn btn-ghost btn-sm" id="generateKeyBtn" type="button">Generate</button>
-      </div>
-      <p class="gate-hint">Save this key somewhere safe — it's the only way back into your profile. There's no password reset.</p>
+      <input type="text" id="createUsernameInput" placeholder="Username (letters, numbers, dots, dashes)" autocomplete="username">
+      <input type="password" id="createPasswordInput" placeholder="Password (min 8 characters)" autocomplete="new-password">
+      <input type="password" id="createPasswordConfirm" placeholder="Confirm password" autocomplete="new-password">
+      <p class="gate-hint">Remember your password — there is no reset option.</p>
       <div class="gate-actions">
-        <button class="btn btn-primary" id="createSubmit" style="flex:1;">Create my profile</button>
+        <button class="btn btn-primary" id="createSubmit" style="flex:1;">Create account</button>
       </div>
       <div class="gate-error" id="createError"></div>
     </div>
@@ -597,8 +597,8 @@
         <input type="number" id="minLiqInput" min="0" step="1000" value="10000">
       </div>
       <div class="field">
-        <label>Scan interval (minutes)</label>
-        <input type="number" id="scanIntervalInput" min="1" max="1440" value="30">
+        <label>Scan interval (seconds)</label>
+        <input type="number" id="scanIntervalInput" min="3" max="3600" value="5">
       </div>
     </div>
     <div class="controls-actions">
@@ -735,10 +735,14 @@
 "use strict";
 
 // ── State ────────────────────────────────────────────────
-let API_KEY        = localStorage.getItem("apiKey") || "";
+// Session token is a 48-char hex string issued at login/register.
+// It lives only in localStorage — never in a cookie, never in a URL.
+// The server never expires it, so "stay signed in forever" works
+// across browser restarts, server restarts, and redeploys.
+let SESSION_TOKEN  = localStorage.getItem("sessionToken") || "";
 let firstLoad       = true;
 let walletConnected = false;
-let strategiesList  = [];   // static list, fetched once
+let strategiesList  = [];
 let tokensCache     = [];
 let historyCache    = [];
 let historyFilter   = "all";
@@ -801,7 +805,7 @@ function toast(msg, isError){
 // ── API helper ───────────────────────────────────────────
 async function api(method, url, body){
   const headers = { "Content-Type": "application/json" };
-  if (API_KEY) headers["x-api-key"] = API_KEY;
+  if (SESSION_TOKEN) headers["x-api-key"] = SESSION_TOKEN;
   let res, data;
   try {
     res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined });
@@ -810,11 +814,11 @@ async function api(method, url, body){
   }
   try { data = await res.json(); } catch { data = null; }
   if (res.status === 401) {
-    // Key is missing/invalid/revoked — drop back to the gate
-    API_KEY = "";
-    localStorage.removeItem("apiKey");
-    showGate("login", "Your session expired or the key is no longer valid. Sign in again.");
-    throw new Error("Unauthorized — please sign in again");
+    // Token missing/invalid — drop back to sign-in
+    SESSION_TOKEN = "";
+    localStorage.removeItem("sessionToken");
+    showGate("login", "Your session expired or wasn't recognised — please sign in again.");
+    throw new Error("Unauthorized");
   }
   if (!res.ok || !data || data.ok === false) {
     throw new Error((data && data.error) || `Request failed (${res.status})`);
@@ -822,13 +826,10 @@ async function api(method, url, body){
   return data;
 }
 
-// ── Gate: profile login / create ─────────────────────────
+// ── Gate: sign in / create account ───────────────────────
 const gateOverlay    = document.getElementById("gateOverlay");
 const gateLoginPane  = document.getElementById("gateLoginPane");
 const gateCreatePane = document.getElementById("gateCreatePane");
-const loginKeyInput  = document.getElementById("loginKeyInput");
-const createNameInput= document.getElementById("createNameInput");
-const createKeyInput = document.getElementById("createKeyInput");
 
 function showGate(tab, subMsg){
   gateOverlay.style.display = "flex";
@@ -836,7 +837,10 @@ function showGate(tab, subMsg){
   document.getElementById("createError").textContent = "";
   if (subMsg) document.getElementById("gateSub").textContent = subMsg;
   switchGateTab(tab || "login");
-  (tab === "create" ? createNameInput : loginKeyInput).focus();
+  const focus = tab === "create"
+    ? document.getElementById("createUsernameInput")
+    : document.getElementById("loginUsernameInput");
+  setTimeout(() => focus && focus.focus(), 50);
 }
 function hideGate(){ gateOverlay.style.display = "none"; }
 
@@ -849,66 +853,79 @@ document.querySelectorAll(".gate-tab").forEach(btn => {
   btn.addEventListener("click", () => switchGateTab(btn.dataset.tab));
 });
 
-document.getElementById("loginSubmit").addEventListener("click", async () => {
-  const val = loginKeyInput.value.trim();
-  const errEl = document.getElementById("loginError");
+// Sign in
+async function doLogin(){
+  const username = document.getElementById("loginUsernameInput").value.trim();
+  const password = document.getElementById("loginPasswordInput").value;
+  const errEl    = document.getElementById("loginError");
   errEl.textContent = "";
-  if (!val) { errEl.textContent = "Enter your API key."; return; }
-  API_KEY = val;
-  try {
-    await api("GET", "/api/profiles/me"); // validates the key
-    localStorage.setItem("apiKey", API_KEY);
-    hideGate();
-    boot();
-  } catch (e) {
-    API_KEY = "";
-    errEl.textContent = "That key isn't recognized. Check it, or create a new profile.";
-  }
-});
-loginKeyInput.addEventListener("keydown", (e) => { if (e.key === "Enter") document.getElementById("loginSubmit").click(); });
+  if (!username || !password){ errEl.textContent = "Enter your username and password."; return; }
 
-document.getElementById("generateKeyBtn").addEventListener("click", async () => {
+  const btn = document.getElementById("loginSubmit");
+  btn.disabled = true; btn.textContent = "Signing in…";
   try {
-    const { apiKey } = await api("GET", "/api/profiles/generate-key");
-    createKeyInput.value = apiKey;
-    createKeyInput.type = "text";
-  } catch (e) { toast(e.message, true); }
-});
-
-document.getElementById("createSubmit").addEventListener("click", async () => {
-  const name  = createNameInput.value.trim();
-  const key   = createKeyInput.value.trim();
-  const errEl = document.getElementById("createError");
-  errEl.textContent = "";
-  if (!name)          { errEl.textContent = "Enter your name."; return; }
-  if (key.length < 8) { errEl.textContent = "API key must be at least 8 characters."; return; }
-
-  const btn = document.getElementById("createSubmit");
-  btn.disabled = true;
-  try {
-    const res = await fetch("/api/profiles/create", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, apiKey: key }),
+    const res = await fetch("/api/auth/login", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ username, password }),
     });
     const data = await res.json();
-    if (!res.ok || !data.ok) throw new Error(data.error || "Could not create profile");
-    API_KEY = key;
-    localStorage.setItem("apiKey", API_KEY);
+    if (!res.ok || !data.ok) throw new Error(data.error || "Sign in failed");
+    SESSION_TOKEN = data.sessionToken;
+    localStorage.setItem("sessionToken", SESSION_TOKEN);
+    document.getElementById("loginPasswordInput").value = "";
     hideGate();
-    toast(`Welcome, ${data.profile.name} — profile created`);
     boot();
-  } catch (e) {
+  } catch(e){
     errEl.textContent = e.message;
   }
-  btn.disabled = false;
-});
-createKeyInput.addEventListener("keydown", (e) => { if (e.key === "Enter") document.getElementById("createSubmit").click(); });
+  btn.disabled = false; btn.textContent = "Sign in";
+}
+document.getElementById("loginSubmit").addEventListener("click", doLogin);
+document.getElementById("loginPasswordInput").addEventListener("keydown", e => { if(e.key==="Enter") doLogin(); });
+document.getElementById("loginUsernameInput").addEventListener("keydown", e => { if(e.key==="Enter") document.getElementById("loginPasswordInput").focus(); });
 
+// Create account
+async function doRegister(){
+  const username = document.getElementById("createUsernameInput").value.trim();
+  const password = document.getElementById("createPasswordInput").value;
+  const confirm  = document.getElementById("createPasswordConfirm").value;
+  const errEl    = document.getElementById("createError");
+  errEl.textContent = "";
+  if (!username)              { errEl.textContent = "Enter a username."; return; }
+  if (password.length < 8)   { errEl.textContent = "Password must be at least 8 characters."; return; }
+  if (password !== confirm)  { errEl.textContent = "Passwords don't match."; return; }
+
+  const btn = document.getElementById("createSubmit");
+  btn.disabled = true; btn.textContent = "Creating…";
+  try {
+    const res = await fetch("/api/auth/register", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ username, password }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || "Could not create account");
+    SESSION_TOKEN = data.sessionToken;
+    localStorage.setItem("sessionToken", SESSION_TOKEN);
+    document.getElementById("createPasswordInput").value = "";
+    document.getElementById("createPasswordConfirm").value = "";
+    hideGate();
+    toast(`Welcome, ${data.profile.username} — account created`);
+    boot();
+  } catch(e){
+    errEl.textContent = e.message;
+  }
+  btn.disabled = false; btn.textContent = "Create account";
+}
+document.getElementById("createSubmit").addEventListener("click", doRegister);
+document.getElementById("createPasswordConfirm").addEventListener("keydown", e => { if(e.key==="Enter") doRegister(); });
+
+// Switch profile (log out)
 document.getElementById("switchProfileBtn").addEventListener("click", () => {
   if (pollTimer) clearInterval(pollTimer);
-  API_KEY = "";
-  localStorage.removeItem("apiKey");
-  loginKeyInput.value = "";
+  SESSION_TOKEN = "";
+  localStorage.removeItem("sessionToken");
+  document.getElementById("loginUsernameInput").value = "";
+  document.getElementById("loginPasswordInput").value = "";
   showGate("login");
 });
 
@@ -947,7 +964,7 @@ document.getElementById("disconnectWalletBtn").addEventListener("click", async (
 // ── Topbar + Stats ribbon ────────────────────────────────
 function renderStatus(status){
   document.getElementById("profileLine").textContent =
-    (status.profile?.name ? status.profile.name + " · " : "") + "Spot only · No leverage · No interest";
+    (status.profile?.username ? status.profile.username + " · " : "") + "Spot only · No leverage · No interest";
 
   walletConnected = !!status.wallet.connected;
   const walletBanner = document.getElementById("walletBanner");
@@ -1001,7 +1018,7 @@ function populateControls(settings){
   document.getElementById("maxTradesInput").value = settings.maxOpenTrades;
   document.getElementById("slippageInput").value = settings.maxSlippagePercent;
   document.getElementById("minLiqInput").value = settings.minLiquidityUsd;
-  document.getElementById("scanIntervalInput").value = settings.scanIntervalMinutes;
+  document.getElementById("scanIntervalInput").value = settings.scanIntervalSeconds;
 }
 
 document.getElementById("autoTradeToggle").addEventListener("change", (e) => {
@@ -1038,7 +1055,7 @@ document.getElementById("saveSettingsBtn").addEventListener("click", async () =>
       maxOpenTrades:       parseInt(document.getElementById("maxTradesInput").value, 10),
       maxSlippagePercent:  parseFloat(document.getElementById("slippageInput").value),
       minLiquidityUsd:     parseFloat(document.getElementById("minLiqInput").value),
-      scanIntervalMinutes: parseInt(document.getElementById("scanIntervalInput").value, 10),
+      scanIntervalSeconds: parseInt(document.getElementById("scanIntervalInput").value, 10),
     };
     const { settings } = await api("POST", "/api/settings/update", patch);
     populateControls(settings);
@@ -1368,13 +1385,20 @@ async function boot(){
 
 // ── Entry point ──────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", async () => {
-  if (API_KEY) {
+  if (SESSION_TOKEN) {
     try {
-      await api("GET", "/api/profiles/me"); // validate stored key still works
+      // Validate stored session token against the server.
+      // If the server has restarted but Redis still has the token
+      // (Upstash is persistent), this succeeds and we go straight
+      // to the dashboard — the "stay signed in forever" experience.
+      await api("GET", "/api/auth/me");
       hideGate();
       boot();
     } catch (e) {
-      // api() already cleared the key and showed the gate on 401
+      // api() already cleared SESSION_TOKEN and called showGate on 401.
+      // Any other error (network down, etc.) — show gate anyway so
+      // the person can retry after fixing connectivity.
+      if (gateOverlay.style.display !== "flex") showGate("login");
     }
   } else {
     showGate("login");

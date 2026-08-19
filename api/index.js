@@ -13,7 +13,7 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, "../public")));
 
 // ── Routes ────────────────────────────────────────────────
-app.use("/api/profiles",  require("./routes/profiles"));
+app.use("/api/auth",      require("./routes/auth"));
 app.use("/api/wallet",    require("./routes/wallet"));
 app.use("/api/status",    require("./routes/status"));
 app.use("/api/trade",     require("./routes/trade"));

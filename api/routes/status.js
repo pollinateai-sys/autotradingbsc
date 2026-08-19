@@ -27,7 +27,7 @@ router.get("/", requireProfile, async (req, res) => {
 
     res.json({
       ok: true,
-      profile: req.profileMeta,
+      profile: { id: req.profileMeta.id, username: req.profileMeta.username },
       wallet: {
         connected:  !!walletInfo,
         address:    walletInfo?.address || null,

@@ -15,7 +15,7 @@ const { STRATEGIES, getStrategy } = require("../config/strategies");
 const ALLOWED_FIELDS = [
   "activeStrategy", "bankrollPercent", "maxOpenTrades",
   "maxSlippagePercent", "minLiquidityUsd", "autoTrade",
-  "botRunning", "scanIntervalMinutes", "minBnbReserve",
+  "botRunning", "scanIntervalSeconds", "minBnbReserve",
 ];
 
 router.get("/", requireProfile, async (req, res) => {
@@ -55,8 +55,10 @@ router.post("/update", requireProfile, async (req, res) => {
     if (patch.minLiquidityUsd !== undefined) {
       patch.minLiquidityUsd = Math.max(0, parseFloat(patch.minLiquidityUsd));
     }
-    if (patch.scanIntervalMinutes !== undefined) {
-      patch.scanIntervalMinutes = Math.max(1, Math.min(1440, parseInt(patch.scanIntervalMinutes)));
+    if (patch.scanIntervalSeconds !== undefined) {
+      // Floor of 3s protects against accidental hammering even though
+      // DexScreener's pair-data endpoint allows ~300 req/min (5/sec).
+      patch.scanIntervalSeconds = Math.max(3, Math.min(3600, parseInt(patch.scanIntervalSeconds)));
     }
 
     // Can't turn the bot on without a wallet connected

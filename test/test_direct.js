@@ -14,7 +14,7 @@ const mocks = require("./setup-mocks.js");
 process.env.AUTO_TRADE = "true";
 
 const { openPosition, checkAndExecuteExits } = require("../api/lib/strategy");
-const { updateSettings, createProfile, getPosition } = require("../api/lib/redis");
+const { updateSettings, registerProfile, getPosition } = require("../api/lib/redis");
 
 let failures = 0;
 function assert(cond, msg) {
@@ -23,8 +23,8 @@ function assert(cond, msg) {
 }
 function approx(a, b, eps = 0.001) { return Math.abs(a - b) < eps; }
 
-async function makeProfile(name) {
-  const profile = await createProfile(name, `test-key-for-${name}-${Date.now()}-${Math.random()}`);
+async function makeProfile(username) {
+  const { profile } = await registerProfile(username, `password-for-${username}-${Date.now()}`);
   await mocks.wallet.connectWallet(profile.id, "1111111111111111111111111111111111111111111111111111111111111111".slice(0, 64));
   mocks.wallet._setBnbBalance(profile.id, 10.0);
   return profile.id;
@@ -135,8 +135,7 @@ async function testProfileIsolation() {
 
 async function testNoWalletBlocksTrading() {
   console.log("\n── Opening a position without a connected wallet fails clearly ──");
-  const { createProfile: create } = require("../api/lib/redis");
-  const profile = await create("NoWallet", `no-wallet-key-${Date.now()}`);
+  const { profile } = await registerProfile("NoWallet", `no-wallet-password-${Date.now()}`);
   const token = { symbol: "BTCB", contract: "0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c" };
 
   let threw = false, message = "";

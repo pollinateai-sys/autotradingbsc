@@ -4,7 +4,9 @@
 //  the profile registry and wallet record storage).
 // ============================================================
 const DEFAULT_TOKENS = require("../../api/config/tokens");
-const { hashApiKey, newProfileId } = require("../../api/lib/crypto"); // pure, no env needed
+const {
+  hashPassword, verifyPassword, hashToken, generateSessionToken, newProfileId,
+} = require("../../api/lib/crypto"); // pure functions (bcrypt/sha256), safe to use for real in tests
 
 const store = {}; // simple in-memory key-value store
 
@@ -14,23 +16,66 @@ function getJson(key, fallback) {
 function setJson(key, value) { store[key] = JSON.parse(JSON.stringify(value)); }
 function delKey(key) { delete store[key]; }
 
-// ── Profile registry ─────────────────────────────────────────
-async function createProfile(name, apiKey) {
-  const hash = hashApiKey(apiKey);
-  const existing = getJson(`profiles:byhash:${hash}`, null);
-  if (existing) throw new Error("This API key is already registered to a profile.");
-  const id = newProfileId();
-  const meta = { id, name, createdAt: new Date().toISOString() };
-  setJson(`profiles:byhash:${hash}`, id);
+// ── Profile registry — username + password, permanent sessions ──
+function normalizeUsername(u) { return String(u || "").trim().toLowerCase(); }
+
+async function registerProfile(username, password) {
+  const uname = normalizeUsername(username);
+  if (uname.length < 3) throw new Error("Username must be at least 3 characters.");
+  if (!/^[a-z0-9_.\-]+$/.test(uname)) {
+    throw new Error("Username can only contain letters, numbers, dots, dashes and underscores.");
+  }
+  if (!password || password.length < 8) throw new Error("Password must be at least 8 characters.");
+
+  const existing = getJson(`profiles:byusername:${uname}`, null);
+  if (existing) throw new Error("That username is already taken.");
+
+  const id           = newProfileId();
+  const passwordHash = await hashPassword(password);
+  const meta = { id, username: String(username).trim(), passwordHash, createdAt: new Date().toISOString() };
+
+  setJson(`profiles:byusername:${uname}`, id);
   setJson(`profiles:meta:${id}`, meta);
   const all = getJson("profiles:all", []);
   all.push(id);
   setJson("profiles:all", all);
-  return meta;
+
+  const sessionToken = await issueSessionToken(id);
+  return { profile: { id, username: meta.username }, sessionToken };
 }
-async function getProfileIdByApiKey(apiKey) { return getJson(`profiles:byhash:${hashApiKey(apiKey)}`, null); }
-async function getProfileMeta(profileId)    { return getJson(`profiles:meta:${profileId}`, null); }
-async function getAllProfileIds()           { return getJson("profiles:all", []); }
+
+async function loginProfile(username, password) {
+  const uname     = normalizeUsername(username);
+  const profileId = getJson(`profiles:byusername:${uname}`, null);
+  if (!profileId) throw new Error("Incorrect username or password.");
+
+  const meta = getJson(`profiles:meta:${profileId}`, null);
+  if (!meta) throw new Error("Incorrect username or password.");
+
+  const ok = await verifyPassword(password, meta.passwordHash);
+  if (!ok) throw new Error("Incorrect username or password.");
+
+  const sessionToken = await issueSessionToken(profileId);
+  return { profile: { id: profileId, username: meta.username }, sessionToken };
+}
+
+async function issueSessionToken(profileId) {
+  const token = generateSessionToken();
+  setJson(`profiles:bytoken:${hashToken(token)}`, profileId);
+  return token;
+}
+
+async function getProfileIdByToken(token) {
+  return getJson(`profiles:bytoken:${hashToken(token)}`, null);
+}
+
+async function getProfileMeta(profileId) {
+  const meta = getJson(`profiles:meta:${profileId}`, null);
+  if (!meta) return null;
+  const { passwordHash, ...safe } = meta; // never leak the hash, matching real redis.js
+  return safe;
+}
+async function getAllProfileIds() { return getJson("profiles:all", []); }
 
 // ── Wallet record storage (shared source of truth for mock wallet.js) ──
 async function getWalletRecord(profileId)     { return getJson(`profile:${profileId}:wallet`, null); }
@@ -74,7 +119,7 @@ async function updateStats(profileId, patch) {
 const DEFAULT_SETTINGS = {
   activeStrategy: "A", bankrollPercent: 0.5, maxOpenTrades: 3,
   maxSlippagePercent: 1.0, minLiquidityUsd: 10000, autoTrade: true,
-  botRunning: false, scanIntervalMinutes: 30, minBnbReserve: 0.01,
+  botRunning: false, scanIntervalSeconds: 5, minBnbReserve: 0.01,
 };
 async function getSettings(profileId) { return { ...DEFAULT_SETTINGS, ...getJson(`profile:${profileId}:settings`, {}) }; }
 async function updateSettings(profileId, patch) {
@@ -116,7 +161,7 @@ async function toggleToken(profileId, symbol, enabled) {
 
 module.exports = {
   getRedis: () => { throw new Error("getRedis not available in mock"); },
-  createProfile, getProfileIdByApiKey, getProfileMeta, getAllProfileIds,
+  registerProfile, loginProfile, getProfileIdByToken, getProfileMeta, getAllProfileIds,
   getWalletRecord, setWalletRecord, deleteWalletRecord, hasWallet,
   getPositions, savePositions, getPosition, setPosition, deletePosition,
   appendTradeLog, getTradeLog, getStats, updateStats,

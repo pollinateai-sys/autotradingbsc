@@ -5,11 +5,12 @@
 //
 //  Multi-profile: one server, any number of people, each with
 //  their own wallet/settings/tokens/positions. A single tick
-//  loop walks every profile every POSITION_CHECK_INTERVAL_SECONDS:
+//  loop walks every profile every POSITION_CHECK_INTERVAL_SECONDS
+//  (default 5s, matching DexScreener's ~300 req/min allowance):
 //   1. Always checks that profile's open positions for SL/TP —
 //      even if their bot is "stopped" (protects existing capital)
 //   2. Scans for new entries only if botRunning=true, a wallet is
-//      connected, AND that profile's own scanIntervalMinutes has
+//      connected, AND that profile's own scanIntervalSeconds has
 //      elapsed since its last scan
 //
 //  NOT needed on Vercel — Vercel uses api/index.js directly plus
@@ -48,7 +49,7 @@ const {
 const telegram = require("./api/lib/telegram");
 
 const PORT = process.env.PORT || 3000;
-const TICK_SECONDS = parseInt(process.env.POSITION_CHECK_INTERVAL_SECONDS || "60");
+const TICK_SECONDS = parseInt(process.env.POSITION_CHECK_INTERVAL_SECONDS || "5");
 
 const BANNER = `
 ╔══════════════════════════════════════════════════════════╗
@@ -74,7 +75,7 @@ async function tick() {
           const meta = await getProfileMeta(profileId);
           exitResults.forEach(r => {
             if (r.action && r.action !== "HOLD") {
-              console.log(`  🔎 [${meta?.name || profileId}] ${r.symbol}: ${r.action} (${r.changePct?.toFixed(2)}%)`);
+              console.log(`  🔎 [${meta?.username || profileId}] ${r.symbol}: ${r.action} (${r.changePct?.toFixed(2)}%)`);
             }
           });
         }
@@ -86,15 +87,15 @@ async function tick() {
         if (!(await hasWallet(profileId))) continue;
 
         const stats = await getStats(profileId);
-        const intervalMs = Math.max(1, settings.scanIntervalMinutes) * 60 * 1000;
+        const intervalMs = Math.max(1, settings.scanIntervalSeconds) * 1000;
         const dueForScan = !stats.lastScan || (Date.now() - new Date(stats.lastScan).getTime()) >= intervalMs;
 
         if (dueForScan) {
           const meta = await getProfileMeta(profileId);
-          console.log(`  🔍 [${meta?.name || profileId}] Running entry scan...`);
+          console.log(`  🔍 [${meta?.username || profileId}] Running entry scan...`);
           const results = await scanForNewEntries(profileId);
           console.log(
-            `  ✅ [${meta?.name || profileId}] Opened: ${results.opened.length} | ` +
+            `  ✅ [${meta?.username || profileId}] Opened: ${results.opened.length} | ` +
             `Skipped: ${results.skipped.length} | Errors: ${results.errors.length}`
           );
           await updateStats(profileId, { lastScan: new Date().toISOString() });

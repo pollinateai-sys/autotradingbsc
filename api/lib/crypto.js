@@ -1,7 +1,10 @@
 // ============================================================
 //  CRYPTO HELPERS
-//  AES-256-GCM encryption for stored wallet private keys, plus
-//  API key hashing/generation for the per-profile auth system.
+//  1. AES-256-GCM encryption for stored wallet private keys.
+//  2. bcrypt password hashing for username/password login.
+//  3. SHA-256 hashing for session tokens (fast lookup — tokens
+//     are high-entropy random values, not human passwords, so a
+//     slow hash isn't needed the way it is for #2).
 //
 //  ENCRYPTION_KEY (env var) is the ONE secret that lets the
 //  server decrypt any profile's wallet key — this is what makes
@@ -11,8 +14,10 @@
 //  connected wallet.
 // ============================================================
 
-const crypto = require("crypto");
-const ALGO   = "aes-256-gcm";
+const crypto  = require("crypto");
+const bcrypt  = require("bcryptjs");
+const ALGO    = "aes-256-gcm";
+const BCRYPT_ROUNDS = 10;
 
 function getEncryptionKey() {
   const hex = process.env.ENCRYPTION_KEY;
@@ -25,7 +30,7 @@ function getEncryptionKey() {
   return Buffer.from(hex, "hex");
 }
 
-/** Encrypt a UTF-8 string. Returns { iv, ciphertext, authTag } as hex strings. */
+/** Encrypt a UTF-8 string (used for wallet private keys). Returns { iv, ciphertext, authTag } as hex. */
 function encrypt(plaintext) {
   const key    = getEncryptionKey();
   const iv     = crypto.randomBytes(12);
@@ -51,14 +56,22 @@ function decrypt({ iv, ciphertext, authTag }) {
   return plaintext.toString("utf8");
 }
 
-/** SHA-256 hash of an API key, used as the Redis lookup key (never store the raw key). */
-function hashApiKey(apiKey) {
-  return crypto.createHash("sha256").update(apiKey, "utf8").digest("hex");
+// ── Passwords (bcrypt — slow on purpose, resists brute force) ──
+async function hashPassword(password) {
+  return bcrypt.hash(password, BCRYPT_ROUNDS);
+}
+async function verifyPassword(password, hash) {
+  return bcrypt.compare(password, hash);
 }
 
-/** Generate a strong random API key (40 hex chars) — offered as a UI convenience. */
-function generateApiKey() {
-  return crypto.randomBytes(20).toString("hex");
+// ── Session tokens (SHA-256 — fast lookup, tokens are already
+//    high-entropy random values so a slow hash adds no security,
+//    only latency on every single authenticated request) ──
+function hashToken(token) {
+  return crypto.createHash("sha256").update(token, "utf8").digest("hex");
+}
+function generateSessionToken() {
+  return crypto.randomBytes(24).toString("hex"); // 48 hex chars
 }
 
 /** Generate a short random profile ID for internal Redis keys. */
@@ -66,4 +79,9 @@ function newProfileId() {
   return crypto.randomBytes(8).toString("hex");
 }
 
-module.exports = { encrypt, decrypt, hashApiKey, generateApiKey, newProfileId, getEncryptionKey };
+module.exports = {
+  encrypt, decrypt, getEncryptionKey,
+  hashPassword, verifyPassword,
+  hashToken, generateSessionToken,
+  newProfileId,
+};
