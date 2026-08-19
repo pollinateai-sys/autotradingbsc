@@ -7,6 +7,7 @@
 const { getStrategy }     = require("../config/strategies");
 const { buyTokenWithBnb, sellTokenForBnb, getCurrentPriceBnb } = require("./pancakeswap");
 const { getSignerWallet, getBnbBalance, getTokenBalance, getProvider } = require("./wallet");
+const { getTokenInfo }    = require("./market");
 const {
   getPosition, setPosition, deletePosition,
   appendTradeLog, getSettings, updateStats, getStats,
@@ -19,25 +20,41 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 async function openPosition(profileId, token) {
   const settings  = await getSettings(profileId);
   const strategy  = getStrategy(settings.activeStrategy);
-  const signer    = await getSignerWallet(profileId); // throws if no wallet connected
 
-  const bnbBalance  = await getBnbBalance(profileId);
-  const tradeAmount = parseFloat(((bnbBalance * settings.bankrollPercent) / 100).toFixed(6));
+  // In simulation mode we never touch the chain — no RPC calls, no signing.
+  // We still need a signer wallet to confirm one is connected (so the person
+  // knows what they're simulating for), but we don't actually use it.
+  const signer = await getSignerWallet(profileId); // throws if no wallet connected
 
-  if (tradeAmount < 0.001) throw new Error("Trade size too small (<0.001 BNB) — increase bankroll% or add funds");
-  if (bnbBalance - tradeAmount < settings.minBnbReserve) {
-    throw new Error("Insufficient BNB (would breach gas reserve)");
+  let bnbBalance, tradeAmount, result, entryPriceBnb, tokenBalance;
+
+  if (!settings.autoTrade) {
+    // ── SIMULATION — no chain calls ───────────────────────────
+    bnbBalance  = 10; // placeholder — we can't read it without RPC
+    tradeAmount = parseFloat(((bnbBalance * settings.bankrollPercent) / 100).toFixed(6));
+
+    // Get entry price from DexScreener (HTTP only, no chain needed)
+    const info = await getTokenInfo(token.contract);
+    entryPriceBnb = info?.priceNative || 0.0001;
+    tokenBalance  = tradeAmount / entryPriceBnb;
+    result        = { hash: "SIMULATED_" + Date.now(), simulated: true };
+  } else {
+    // ── LIVE — real chain calls ────────────────────────────────
+    bnbBalance  = await getBnbBalance(profileId);
+    tradeAmount = parseFloat(((bnbBalance * settings.bankrollPercent) / 100).toFixed(6));
+
+    if (tradeAmount < 0.001) throw new Error("Trade size too small (<0.001 BNB) — increase bankroll% or add funds");
+    if (bnbBalance - tradeAmount < settings.minBnbReserve) {
+      throw new Error("Insufficient BNB (would breach gas reserve)");
+    }
+
+    result = await buyTokenWithBnb(signer, token.contract, tradeAmount, settings.maxSlippagePercent, true);
+    await sleep(3000);
+
+    entryPriceBnb = await getCurrentPriceBnb(getProvider(), token.contract);
+    if (!entryPriceBnb) throw new Error("Could not read entry price after buy");
+    tokenBalance = await getTokenBalance(profileId, token.contract);
   }
-
-  const result = await buyTokenWithBnb(signer, token.contract, tradeAmount, settings.maxSlippagePercent, settings.autoTrade);
-  await sleep(3000);
-
-  const entryPriceBnb = await getCurrentPriceBnb(getProvider(), token.contract);
-  const tokenBalance  = settings.autoTrade
-    ? await getTokenBalance(profileId, token.contract)
-    : tradeAmount / (entryPriceBnb || 1);
-
-  if (!entryPriceBnb) throw new Error("Could not read entry price after buy");
 
   const position = {
     symbol:          token.symbol,

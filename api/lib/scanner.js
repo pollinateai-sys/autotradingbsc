@@ -71,8 +71,10 @@ async function scanForNewEntries(profileId) {
       results.opened.push({ symbol: token.symbol, position });
 
     } catch (e) {
+      const msg = `${token.symbol}: ${e.message}`;
       results.errors.push({ symbol: token.symbol, error: e.message });
-      await telegram.sendError(`Open position failed: ${token.symbol} — ${e.message}`);
+      console.error(`  ❌ [scanner] ${msg}`);
+      await telegram.sendError(`Open position failed: ${msg}`);
     }
   }
   return results;

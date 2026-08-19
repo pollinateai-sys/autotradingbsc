@@ -94,10 +94,13 @@ async function tick() {
           const meta = await getProfileMeta(profileId);
           console.log(`  🔍 [${meta?.username || profileId}] Running entry scan...`);
           const results = await scanForNewEntries(profileId);
-          console.log(
-            `  ✅ [${meta?.username || profileId}] Opened: ${results.opened.length} | ` +
-            `Skipped: ${results.skipped.length} | Errors: ${results.errors.length}`
-          );
+          const summary = `Opened: ${results.opened.length} | Skipped: ${results.skipped.length} | Errors: ${results.errors.length}`;
+          console.log(`  ✅ [${meta?.username || profileId}] ${summary}`);
+          if (results.errors.length > 0) {
+            results.errors.forEach(e => {
+              console.log(`  ❌ [${meta?.username || profileId}] ${e.symbol}: ${e.error}`);
+            });
+          }
           await updateStats(profileId, { lastScan: new Date().toISOString() });
         }
       } catch (e) {
