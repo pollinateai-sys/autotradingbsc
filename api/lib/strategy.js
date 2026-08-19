@@ -43,7 +43,7 @@ async function openPosition(profileId, token) {
     bnbBalance  = await getBnbBalance(profileId);
     tradeAmount = parseFloat(((bnbBalance * settings.bankrollPercent) / 100).toFixed(6));
 
-    if (tradeAmount < 0.001) throw new Error("Trade size too small (<0.001 BNB) — increase bankroll% or add funds");
+    if (tradeAmount < 0.0001) throw new Error("Trade size too small (<0.0001 BNB) — increase bankroll% or add funds");
     if (bnbBalance - tradeAmount < settings.minBnbReserve) {
       throw new Error("Insufficient BNB (would breach gas reserve)");
     }
