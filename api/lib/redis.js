@@ -249,3 +249,42 @@ module.exports = {
   // tokens
   getTokens, saveTokens, addToken, removeToken, toggleToken,
 };
+
+// ══════════════════════════════════════════════════════════
+//  PROFILE DELETION
+//  Removes a profile and ALL of its data from Redis.
+//  Used to clean up ghost profiles (e.g. old auto-generated ones).
+// ══════════════════════════════════════════════════════════
+async function deleteProfile(profileId) {
+  const meta = await getJson(`profiles:meta:${profileId}`, null);
+  if (!meta) throw new Error(`Profile ${profileId} not found`);
+
+  const r = getRedis();
+
+  // Remove from the profiles:all list
+  const all     = await getJson("profiles:all", []);
+  const updated = all.filter(id => id !== profileId);
+  await setJson("profiles:all", updated);
+
+  // Remove username → id lookup
+  if (meta.username) {
+    const uname = String(meta.username).trim().toLowerCase();
+    await r.del(`profiles:byusername:${uname}`);
+  }
+
+  // Remove all per-profile keys
+  const keys = [
+    `profiles:meta:${profileId}`,
+    `profile:${profileId}:settings`,
+    `profile:${profileId}:tokens`,
+    `profile:${profileId}:positions`,
+    `profile:${profileId}:tradelog`,
+    `profile:${profileId}:stats`,
+    `profile:${profileId}:wallet`,
+  ];
+  for (const key of keys) await r.del(key);
+
+  return { deleted: profileId, username: meta.username };
+}
+
+module.exports.deleteProfile = deleteProfile;

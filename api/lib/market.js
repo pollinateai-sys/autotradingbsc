@@ -94,15 +94,18 @@ async function getTokenMetadata(contractAddress) {
     throw new Error("Could not read token contract — is this a valid BEP20 token address?");
   }
 
-  // Also try to get live market data for a preview
+  // ethers.js v6 returns decimals as BigInt — convert to Number so
+  // JSON.stringify doesn't throw "Do not know how to serialize a BigInt"
+  const decimalsNum = Number(decimals);
+
   const marketInfo = await getTokenInfo(contractAddress);
 
   return {
     symbol,
-    name: name || symbol,
-    decimals,
-    contract: ethers.getAddress(contractAddress), // checksummed
-    market: marketInfo, // may be null if no DEX pair found yet
+    name:     name || symbol,
+    decimals: decimalsNum,
+    contract: ethers.getAddress(contractAddress),
+    market:   marketInfo,
   };
 }
 

@@ -46,3 +46,41 @@ router.get("/me", requireProfile, (req, res) => {
 });
 
 module.exports = router;
+
+const { deleteProfile, getAllProfileIds, getProfileMeta } = require("../lib/redis");
+
+// DELETE own account
+router.post("/delete-account", requireProfile, async (req, res) => {
+  try {
+    const result = await deleteProfile(req.profileId);
+    res.json({ ok: true, result });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// LIST all profiles (admin — only exposes id + username, not hash)
+router.get("/list-profiles", requireProfile, async (req, res) => {
+  try {
+    const ids  = await getAllProfileIds();
+    const list = await Promise.all(ids.map(async id => {
+      const m = await getProfileMeta(id);
+      return { id, username: m?.username || "(no username)", createdAt: m?.createdAt };
+    }));
+    res.json({ ok: true, profiles: list });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// DELETE any profile by ID (admin — any logged-in user can call this for now)
+router.post("/delete-profile", requireProfile, async (req, res) => {
+  try {
+    const { profileId } = req.body;
+    if (!profileId) return res.status(400).json({ ok: false, error: "Missing profileId" });
+    const result = await deleteProfile(profileId);
+    res.json({ ok: true, result });
+  } catch (e) {
+    res.status(400).json({ ok: false, error: e.message });
+  }
+});

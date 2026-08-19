@@ -717,6 +717,29 @@
     </div>
   </div>
 
+  <!-- ══════════════════════════════════════════════════════════
+       SECTION 6 — DANGER ZONE (profile management)
+  ══════════════════════════════════════════════════════════ -->
+  <div class="divider"><span class="star8"></span></div>
+  <div class="section-head">
+    <div>
+      <div class="section-eyebrow"><span class="star8"></span><span>Admin</span></div>
+      <div class="section-title">Profile Management</div>
+      <div class="section-sub">Delete ghost or unused profiles. All their data, tokens, positions and wallet keys are permanently removed from Redis.</div>
+    </div>
+  </div>
+  <div class="card card-pad">
+    <div class="table-wrap">
+      <table id="profilesTable" style="display:none;">
+        <thead><tr><th>Username</th><th>Profile ID</th><th>Created</th><th></th></tr></thead>
+        <tbody id="profilesTableBody"></tbody>
+      </table>
+      <div class="empty-state" id="profilesEmpty">
+        <div class="msg skeleton" style="height:16px;width:200px;margin:0 auto;"></div>
+      </div>
+    </div>
+  </div>
+
   <footer>
     Spot trading only · No leverage, margin, or interest-bearing positions · Not financial or religious advice.<br>
     Consult a qualified Islamic finance scholar before trading. Never trade with money you cannot afford to lose.
@@ -1364,6 +1387,47 @@ async function refreshHistory(){
   try { const { log } = await api("GET", "/api/positions/log"); historyCache = log; renderHistory(); }
   catch (e) { console.warn("History refresh failed:", e.message); }
 }
+// ── Profile management (danger zone) ─────────────────────
+async function refreshProfiles(){
+  try {
+    const { profiles } = await api("GET", "/api/auth/list-profiles");
+    const tbody = document.getElementById("profilesTableBody");
+    const table = document.getElementById("profilesTable");
+    const empty = document.getElementById("profilesEmpty");
+
+    if (!profiles || profiles.length === 0) {
+      table.style.display = "none";
+      empty.innerHTML = '<div class="msg">No profiles found.</div>';
+      return;
+    }
+    table.style.display = "table";
+    empty.style.display = "none";
+    tbody.innerHTML = profiles.map(p => `
+      <tr>
+        <td><b>${esc(p.username || "(no username)")}</b></td>
+        <td class="mono contract-link" style="font-size:11px;">${esc(p.id)}</td>
+        <td style="font-size:12px;color:var(--text-dim);">${p.createdAt ? new Date(p.createdAt).toLocaleDateString() : "—"}</td>
+        <td>
+          <button class="btn btn-sm" style="border-color:var(--red);color:var(--red);"
+            onclick="deleteProfileById('${esc(p.id)}','${esc(p.username||p.id)}')">
+            Delete
+          </button>
+        </td>
+      </tr>`).join("");
+  } catch (e) {
+    console.error("refreshProfiles:", e.message);
+  }
+}
+
+async function deleteProfileById(profileId, label) {
+  if (!confirm(`Delete profile "${label}" and ALL its data permanently?\n\nThis cannot be undone.`)) return;
+  try {
+    await api("POST", "/api/auth/delete-profile", { profileId });
+    toast(`Profile "${label}" deleted`);
+    await refreshProfiles();
+  } catch (e) { toast(e.message, true); }
+}
+
 async function refreshAll(){
   await Promise.all([refreshStatus(), refreshTokens(), refreshPositions(), refreshHistory()]);
   firstLoad = false;
@@ -1378,6 +1442,7 @@ async function boot(){
   } catch (e) { toast("Could not load strategies: " + e.message, true); }
 
   await refreshAll();
+  await refreshProfiles();
 
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = setInterval(refreshAll, POLL_MS);
