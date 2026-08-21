@@ -181,7 +181,7 @@ const DEFAULT_SETTINGS = {
   autoTrade:           true,
   botRunning:          false,
   scanIntervalSeconds: 5,     // DexScreener poll cadence for new-entry scanning
-  minBnbReserve:       0.01,
+  minBnbReserve:       0.002,  // BSC gas per swap is ~0.0003 BNB — 0.002 covers 6+ transactions
 };
 
 async function getSettings(profileId) {

@@ -55,6 +55,10 @@ router.post("/update", requireProfile, async (req, res) => {
     if (patch.minLiquidityUsd !== undefined) {
       patch.minLiquidityUsd = Math.max(0, parseFloat(patch.minLiquidityUsd));
     }
+    if (patch.minBnbReserve !== undefined) {
+      // Floor of 0.0005 BNB — minimum to cover at least one gas payment on BSC
+      patch.minBnbReserve = Math.max(0.0005, parseFloat(patch.minBnbReserve));
+    }
     if (patch.scanIntervalSeconds !== undefined) {
       // Floor of 3s protects against accidental hammering even though
       // DexScreener's pair-data endpoint allows ~300 req/min (5/sec).
