@@ -14,6 +14,7 @@ const {
 } = require("./redis");
 const { checkAndExecuteExits, openPosition } = require("./strategy");
 const { getTokenInfo } = require("./market");
+const { isCooledDown, getCooldownReason, setCooldown } = require("./cooldown");
 const telegram = require("./telegram");
 
 // ── Always runs for a profile — protects its existing capital ──
@@ -54,6 +55,13 @@ async function scanForNewEntries(profileId) {
         continue;
       }
 
+      // Skip tokens that failed recently — don't waste gas retrying
+      if (isCooledDown(profileId, token.contract)) {
+        const reason = getCooldownReason(profileId, token.contract);
+        results.skipped.push({ symbol: token.symbol, reason: `Cooldown: ${reason}` });
+        continue;
+      }
+
       const info = await getTokenInfo(token.contract);
       if (!info) {
         results.skipped.push({ symbol: token.symbol, reason: "No market data / no liquidity pool" });
@@ -75,6 +83,10 @@ async function scanForNewEntries(profileId) {
       results.errors.push({ symbol: token.symbol, error: e.message });
       console.error(`  ❌ [scanner] ${msg}`);
       await telegram.sendError(`Open position failed: ${msg}`);
+
+      // Put on cooldown so we don't retry endlessly and burn gas
+      // on tokens that clearly can't be swapped right now
+      setCooldown(profileId, token.contract, e.message, 10 * 60 * 1000); // 10 min
     }
   }
   return results;
