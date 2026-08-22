@@ -94,18 +94,25 @@ async function getTokenMetadata(contractAddress) {
     throw new Error("Could not read token contract — is this a valid BEP20 token address?");
   }
 
-  // ethers.js v6 returns decimals as BigInt — convert to Number so
-  // JSON.stringify doesn't throw "Do not know how to serialize a BigInt"
   const decimalsNum = Number(decimals);
 
+  // Check liquidity across ALL supported DEXes (V2 + V3)
+  // Use a tiny probe amount — we just need to confirm a pool exists
+  const { findBestQuote } = require("./dex");
+  const bestQuote = await findBestQuote(provider, contractAddress, 0.001).catch(() => null);
+
+  // Also pull DexScreener data for price/volume/liquidity display
   const marketInfo = await getTokenInfo(contractAddress);
 
   return {
     symbol,
-    name:     name || symbol,
-    decimals: decimalsNum,
-    contract: ethers.getAddress(contractAddress),
-    market:   marketInfo,
+    name:          name || symbol,
+    decimals:      decimalsNum,
+    contract:      ethers.getAddress(contractAddress),
+    market:        marketInfo,
+    // Which DEX (if any) has an on-chain pool for this token
+    bestDex:       bestQuote ? bestQuote.router.name : null,
+    hasOnChainPool: bestQuote !== null,
   };
 }
 

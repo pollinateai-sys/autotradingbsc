@@ -8,7 +8,7 @@ const express = require("express");
 const router  = express.Router();
 const { requireProfile } = require("../middleware/auth");
 const { getPositions, getTradeLog } = require("../lib/redis");
-const { getCurrentPriceBnb } = require("../lib/pancakeswap");
+const { getCurrentPriceBnb } = require("../lib/dex");
 const { getProvider } = require("../lib/wallet");
 const { getStrategy } = require("../config/strategies");
 

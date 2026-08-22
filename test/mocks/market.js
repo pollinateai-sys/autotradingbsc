@@ -21,11 +21,13 @@ async function getTokenMetadata(contractAddress) {
   if (!ethers.isAddress(contractAddress)) throw new Error("Invalid contract address format");
   const market = await getTokenInfo(contractAddress);
   return {
-    symbol: "NEWTKN",
-    name: "New Test Token",
-    decimals: 18,
-    contract: ethers.getAddress(contractAddress),
+    symbol:         "NEWTKN",
+    name:           "New Test Token",
+    decimals:       18,
+    contract:       ethers.getAddress(contractAddress),
     market,
+    hasOnChainPool: true,          // always true in tests — mock DEX always returns a quote
+    bestDex:        "PancakeSwap V2",
   };
 }
 

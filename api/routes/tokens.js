@@ -51,13 +51,25 @@ router.post("/add", requireProfile, async (req, res) => {
     if (!contract) return res.status(400).json({ ok: false, error: "Missing contract address" });
 
     const meta = await getTokenMetadata(contract);
+
+    // Block tokens with no tradeable pool on any supported DEX
+    if (!meta.hasOnChainPool) {
+      return res.status(400).json({
+        ok: false,
+        error: `No tradeable liquidity pool found for this token on any supported DEX ` +
+               `(PancakeSwap V2/V3, BiSwap, ApeSwap, BabySwap, MDEX, Nomiswap, KnightSwap). ` +
+               `The token cannot be traded.`,
+      });
+    }
+
     const token = {
-      symbol:   symbol || meta.symbol,
-      name:     name   || meta.name,
-      contract: meta.contract,
-      enabled:  true,
+      symbol:        symbol || meta.symbol,
+      name:          name   || meta.name,
+      contract:      meta.contract,
+      enabled:       true,
+      bestDex:       meta.bestDex,       // Which DEX had the best pool at time of adding
       addedManually: true,
-      addedAt:  new Date().toISOString(),
+      addedAt:       new Date().toISOString(),
     };
 
     const tokens = await addToken(req.profileId, token);

@@ -5,7 +5,7 @@
 // ============================================================
 
 const { getStrategy }     = require("../config/strategies");
-const { buyTokenWithBnb, sellTokenForBnb, getCurrentPriceBnb } = require("./pancakeswap");
+const { buyToken, sellToken, getCurrentPriceBnb } = require("./dex");
 const { getSignerWallet, getBnbBalance, getTokenBalance, getProvider } = require("./wallet");
 const { getTokenInfo }    = require("./market");
 const {
@@ -48,7 +48,7 @@ async function openPosition(profileId, token) {
       throw new Error("Insufficient BNB (would breach gas reserve)");
     }
 
-    result = await buyTokenWithBnb(signer, token.contract, tradeAmount, settings.maxSlippagePercent, true);
+    result = await buyToken(signer, token.contract, tradeAmount, settings.maxSlippagePercent);
     await sleep(3000);
 
     entryPriceBnb = await getCurrentPriceBnb(getProvider(), token.contract);
@@ -100,7 +100,7 @@ async function checkAndExecuteExits(profileId, symbol) {
   // ── STOP LOSS ──────────────────────────────────────────
   if (changePct <= strategy.stopLoss && !position.slHit) {
     const signer = await getSignerWallet(profileId);
-    const result = await sellTokenForBnb(signer, position.contract, position.remainingTokens, settings.autoTrade);
+    const result = await (settings.autoTrade ? sellToken(signer, position.contract, position.remainingTokens) : { hash: "SIMULATED_" + Date.now(), simulated: true });
     await deletePosition(profileId, symbol);
     await appendTradeLog(profileId, { type: "STOP_LOSS", symbol, changePct, tx: result.hash, simulated: result.simulated || false });
 
@@ -119,7 +119,7 @@ async function checkAndExecuteExits(profileId, symbol) {
       if (sellAmount <= 0 || sellAmount > position.remainingTokens) continue;
 
       const signer = await getSignerWallet(profileId);
-      const result = await sellTokenForBnb(signer, position.contract, sellAmount, settings.autoTrade);
+      const result = await (settings.autoTrade ? sellToken(signer, position.contract, sellAmount) : { hash: "SIMULATED_" + Date.now(), simulated: true });
       position.tpHit.push(i);
       position.remainingTokens = parseFloat((position.remainingTokens - sellAmount).toFixed(8));
       position.currentPrice    = currentPrice;
@@ -163,7 +163,7 @@ async function closePositionManual(profileId, symbol) {
     : 0;
 
   const signer = await getSignerWallet(profileId);
-  const result = await sellTokenForBnb(signer, position.contract, position.remainingTokens, settings.autoTrade);
+  const result = await (settings.autoTrade ? sellToken(signer, position.contract, position.remainingTokens) : { hash: "SIMULATED_" + Date.now(), simulated: true });
   await deletePosition(profileId, symbol);
   await appendTradeLog(profileId, {
     type: "MANUAL_CLOSE", symbol, changePct, tx: result.hash, simulated: result.simulated || false,

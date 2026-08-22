@@ -25,6 +25,7 @@ function injectMock(realRelativePath, mockRelativePath) {
 injectMock("../api/lib/redis.js",       "./mocks/redis.js");
 injectMock("../api/lib/wallet.js",      "./mocks/wallet.js");
 injectMock("../api/lib/pancakeswap.js", "./mocks/pancakeswap.js");
+injectMock("../api/lib/dex.js",         "./mocks/pancakeswap.js"); // same mock — dex.js is the new pancakeswap.js
 injectMock("../api/lib/market.js",      "./mocks/market.js");
 
 module.exports = {
