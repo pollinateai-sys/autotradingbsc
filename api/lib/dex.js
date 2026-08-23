@@ -83,7 +83,7 @@ const ERC20_ABI = [
 
 // ── Error cleanup ─────────────────────────────────────────────
 function cleanError(e) {
-  if (e.code === "CALL_EXCEPTION")   return e.reason || "Swap reverted on-chain — no pool, honeypot, or transfer fee issue";
+  if (e.code === "CALL_EXCEPTION")   return e.reason || "Swap reverted on-chain";
   if (e.code === "INSUFFICIENT_FUNDS") return "Insufficient BNB for gas";
   if (e.code === "NETWORK_ERROR")    return "BSC RPC network error";
   return String(e.message || e).split("\n")[0].substring(0, 200);
@@ -148,41 +148,73 @@ async function hasLiquidityAnywhere(provider, tokenAddress, minBnbEquiv = 0.001)
 }
 
 // ── Execute buy using whichever DEX gives best quote ──────────
+// For fee-on-transfer / tax tokens: the quote succeeds but the swap
+// reverts because the token's own fee reduces received amount below
+// amountOutMin. We retry with escalating slippage automatically.
 async function buyToken(signerWallet, tokenAddress, bnbAmount, maxSlippage = 1.0) {
   const provider = signerWallet.provider;
   const best     = await findBestQuote(provider, tokenAddress, bnbAmount);
 
   if (!best) throw new Error("No liquidity found on any supported DEX (V2 or V3)");
 
-  const slipBps      = BigInt(Math.floor(maxSlippage * 100));
-  const amountOutMin = (best.amountOut * (10000n - slipBps)) / 10000n;
-  const amountIn     = ethers.parseEther(bnbAmount.toString());
-  const deadline     = Math.floor(Date.now() / 1000) + 300;
-  const gasPrice     = await getGasPrice(provider);
+  const amountIn = ethers.parseEther(bnbAmount.toString());
+  const deadline = Math.floor(Date.now() / 1000) + 300;
+  const gasPrice = await getGasPrice(provider);
 
   console.log(`  🔀 Using ${best.router.name} (best quote: ${ethers.formatUnits(best.amountOut, 18).substring(0,12)} tokens)`);
 
-  try {
-    let tx;
-    if (best.version === 2) {
-      const router = new ethers.Contract(best.router.address, V2_ABI, signerWallet);
-      tx = await router.swapExactETHForTokensSupportingFeeOnTransferTokens(
-        amountOutMin, [WBNB, tokenAddress], signerWallet.address, deadline,
-        { value: amountIn, gasPrice, gasLimit: 400000n }
-      );
-    } else {
-      const router = new ethers.Contract(V3_ROUTER.address, V3_ROUTER_ABI, signerWallet);
-      tx = await router.exactInputSingle(
-        [WBNB, tokenAddress, best.router.fee, signerWallet.address, amountIn, amountOutMin, 0n],
-        { value: amountIn, gasPrice, gasLimit: 400000n }
-      );
+  // Slippage ladder: start at user's setting, escalate for tax tokens.
+  // Cap at 49% — above that is genuinely dangerous (severe MEV risk).
+  const slippageLadder = [
+    maxSlippage,
+    ...[3, 5, 10, 15, 20, 49].filter(s => s > maxSlippage),
+  ];
+
+  let lastError = null;
+  for (const slip of slippageLadder) {
+    const slipBps      = BigInt(Math.floor(slip * 100));
+    const amountOutMin = (best.amountOut * (10000n - slipBps)) / 10000n;
+
+    if (slip > maxSlippage) {
+      console.log(`  🔁 Retrying with ${slip}% slippage (token may have transfer tax)`);
     }
-    const receipt = await tx.wait();
-    if (receipt.status !== 1) throw new Error(`Swap reverted on ${best.router.name}`);
-    return { hash: tx.hash, dex: best.router.name, simulated: false };
-  } catch (e) {
-    throw new Error(`${best.router.name}: ${cleanError(e)}`);
+
+    try {
+      let tx;
+      if (best.version === 2) {
+        const router = new ethers.Contract(best.router.address, V2_ABI, signerWallet);
+        tx = await router.swapExactETHForTokensSupportingFeeOnTransferTokens(
+          amountOutMin, [WBNB, tokenAddress], signerWallet.address, deadline,
+          { value: amountIn, gasPrice, gasLimit: 400000n }
+        );
+      } else {
+        const router = new ethers.Contract(V3_ROUTER.address, V3_ROUTER_ABI, signerWallet);
+        tx = await router.exactInputSingle(
+          [WBNB, tokenAddress, best.router.fee, signerWallet.address, amountIn, amountOutMin, 0n],
+          { value: amountIn, gasPrice, gasLimit: 400000n }
+        );
+      }
+      const receipt = await tx.wait();
+      if (receipt.status !== 1) {
+        lastError = new Error(`Swap reverted on ${best.router.name} at ${slip}% slippage`);
+        // On-chain revert at this slippage — try higher
+        continue;
+      }
+      if (slip > maxSlippage) {
+        console.log(`  ✅ Swap succeeded at ${slip}% slippage — token has ~${Math.ceil(slip)}% transfer tax`);
+      }
+      return { hash: tx.hash, dex: best.router.name, slippageUsed: slip, simulated: false };
+    } catch (e) {
+      const msg = cleanError(e);
+      lastError  = new Error(`${best.router.name} at ${slip}%: ${msg}`);
+      // Only retry on CALL_EXCEPTION (slippage/fee issue).
+      // For network errors, insufficient funds, etc., fail immediately.
+      if (e.code !== "CALL_EXCEPTION") throw lastError;
+      // Otherwise continue to next slippage level
+    }
   }
+
+  throw lastError || new Error("Swap failed at all slippage levels (token may be a honeypot)");
 }
 
 // ── Execute sell using best DEX ───────────────────────────────

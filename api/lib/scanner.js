@@ -84,9 +84,16 @@ async function scanForNewEntries(profileId) {
       console.error(`  ❌ [scanner] ${msg}`);
       await telegram.sendError(`Open position failed: ${msg}`);
 
-      // Put on cooldown so we don't retry endlessly and burn gas
-      // on tokens that clearly can't be swapped right now
-      setCooldown(profileId, token.contract, e.message, 10 * 60 * 1000); // 10 min
+      // Only cooldown tokens that are definitively un-tradeable.
+      // dex.js already retried all slippage levels internally, so if
+      // we get here with a "all slippage levels" message it means the
+      // token really is a honeypot — cooldown for 30 min.
+      // For other errors (RPC down, low balance, etc.) use 2 min so
+      // we retry soon without flooding logs.
+      const isHoneypot   = e.message.includes("all slippage levels");
+      const isNoLiquidity = e.message.includes("No liquidity found");
+      const cooldownMs   = (isHoneypot || isNoLiquidity) ? 30 * 60 * 1000 : 2 * 60 * 1000;
+      setCooldown(profileId, token.contract, e.message, cooldownMs);
     }
   }
   return results;
