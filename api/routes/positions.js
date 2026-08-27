@@ -7,10 +7,10 @@
 const express = require("express");
 const router  = express.Router();
 const { requireProfile } = require("../middleware/auth");
-const { getPositions, getTradeLog } = require("../lib/redis");
+const { getPositions, getTradeLog, getSettings } = require("../lib/redis");
 const { getCurrentPriceBnb } = require("../lib/dex");
 const { getProvider } = require("../lib/wallet");
-const { getStrategy } = require("../config/strategies");
+const { resolvePositionStrategy } = require("../lib/strategies");
 
 router.get("/", requireProfile, async (req, res) => {
   try {
@@ -18,10 +18,12 @@ router.get("/", requireProfile, async (req, res) => {
     const symbols    = Object.keys(positions);
     const provider   = getProvider();
 
+    const settings = await getSettings(req.profileId);
+
     const enriched = await Promise.all(symbols.map(async (symbol) => {
       const pos   = positions[symbol];
       const price = await getCurrentPriceBnb(provider, pos.contract).catch(() => null);
-      const strategy = getStrategy(pos.strategyKey);
+      const strategy = await resolvePositionStrategy(req.profileId, pos, settings);
       const changePct = price
         ? ((price - pos.entryPriceBnb) / pos.entryPriceBnb) * 100
         : null;

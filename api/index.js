@@ -20,6 +20,7 @@ app.use("/api/trade",     require("./routes/trade"));
 app.use("/api/positions", require("./routes/positions"));
 app.use("/api/tokens",    require("./routes/tokens"));
 app.use("/api/settings",  require("./routes/settings"));
+app.use("/api/strategies", require("./routes/strategies"));
 app.use("/api",           require("./routes/scan")); // /api/scan/now + /api/cron/scan
 
 app.get("/", (req, res) => {

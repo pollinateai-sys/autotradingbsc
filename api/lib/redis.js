@@ -16,6 +16,7 @@
 const { Redis } = require("@upstash/redis");
 const { hashPassword, verifyPassword, hashToken, generateSessionToken, newProfileId } = require("./crypto");
 const DEFAULT_TOKENS = require("../config/tokens");
+const { DEFAULT_ENTRY_RULES } = require("./entryrules");
 
 let redis;
 
@@ -185,8 +186,15 @@ const DEFAULT_SETTINGS = {
 };
 
 async function getSettings(profileId) {
-  const saved = await getJson(`profile:${profileId}:settings`, {});
-  return { ...DEFAULT_SETTINGS, ...saved };
+  const saved  = await getJson(`profile:${profileId}:settings`, {});
+  const merged = { ...DEFAULT_SETTINGS, ...saved };
+  // Entry rules (the editable "when to buy" conditions) get their default
+  // here — deep-cloned so one profile can never mutate the shared default
+  // object another profile would then inherit.
+  if (!merged.entryRules || typeof merged.entryRules !== "object" || !Array.isArray(merged.entryRules.conditions)) {
+    merged.entryRules = JSON.parse(JSON.stringify(DEFAULT_ENTRY_RULES));
+  }
+  return merged;
 }
 async function updateSettings(profileId, patch) {
   const current = await getSettings(profileId);
@@ -232,6 +240,16 @@ async function toggleToken(profileId, symbol, enabled) {
   return t;
 }
 
+// ══════════════════════════════════════════════════════════
+//  STRATEGIES (per profile — editable SL/TP ladders)
+//  Raw storage only — seeding, validation and CRUD logic live
+//  in api/lib/strategies.js. Returns null when never saved so
+//  the lib layer knows to seed the built-in defaults.
+// ══════════════════════════════════════════════════════════
+
+async function getStrategies(profileId)          { return getJson(`profile:${profileId}:strategies`, null); }
+async function saveStrategies(profileId, list)    { return setJson(`profile:${profileId}:strategies`, list); }
+
 module.exports = {
   getRedis,
   // profiles (username/password + permanent session tokens)
@@ -248,6 +266,8 @@ module.exports = {
   getSettings, updateSettings,
   // tokens
   getTokens, saveTokens, addToken, removeToken, toggleToken,
+  // strategies
+  getStrategies, saveStrategies,
 };
 
 // ══════════════════════════════════════════════════════════
@@ -281,6 +301,7 @@ async function deleteProfile(profileId) {
     `profile:${profileId}:tradelog`,
     `profile:${profileId}:stats`,
     `profile:${profileId}:wallet`,
+    `profile:${profileId}:strategies`,
   ];
   for (const key of keys) await r.del(key);
 

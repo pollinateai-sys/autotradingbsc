@@ -14,6 +14,7 @@ const {
 } = require("./redis");
 const { checkAndExecuteExits, openPosition } = require("./strategy");
 const { getTokenInfo } = require("./market");
+const { evaluateEntryRules } = require("./entryrules");
 const { isCooledDown, getCooldownReason, setCooldown } = require("./cooldown");
 const telegram = require("./telegram");
 
@@ -72,6 +73,18 @@ async function scanForNewEntries(profileId) {
           symbol: token.symbol,
           reason: `Low liquidity ($${info.liquidityUsd.toFixed(0)} < $${settings.minLiquidityUsd})`,
         });
+        continue;
+      }
+
+      // ── ENTRY RULES — the editable buy conditions ─────────
+      // The bot no longer buys instantly: a token must satisfy
+      // this profile's entry rules (default: "dumped ≥40% in 1h
+      // AND still up ≥100% over 24h") before any money moves.
+      // Editable per profile from the dashboard; disabled rules
+      // restore the old buy-immediately behavior.
+      const gate = evaluateEntryRules(settings.entryRules, info);
+      if (!gate.pass) {
+        results.skipped.push({ symbol: token.symbol, reason: `Waiting for entry setup: ${gate.summary}` });
         continue;
       }
 

@@ -199,6 +199,68 @@ async function main() {
     assert(r.status === 200 && r.json.profile.username === "alice_trader", "GET /api/auth/me returns the right profile");
     assert(!("passwordHash" in r.json.profile), "whoami response never includes passwordHash");
 
+    console.log("\n── Strategy CRUD over HTTP ──");
+    r = await req("GET", "/api/strategies", null, alice.token);
+    assert(r.status === 200 && r.json.strategies.length === 3, "GET /api/strategies seeds built-in A/B/C");
+    assert(r.json.strategies.every(s => s.builtIn === true), "Seeded strategies are flagged builtIn");
+
+    r = await req("POST", "/api/strategies", {
+      name: "HTTP Custom", stopLoss: -30,
+      takeProfits: [{ targetPercent: 80, sellPercent: 100 }],
+    }, alice.token);
+    assert(r.status === 200 && r.json.strategy.key, "Create custom strategy → 200 + auto key");
+    const customKey = r.json.strategy.key;
+
+    r = await req("POST", "/api/strategies", {
+      name: "Bad Totals", stopLoss: -30,
+      takeProfits: [{ targetPercent: 50, sellPercent: 40 }],
+    }, alice.token);
+    assert(r.status === 400, "Create with sell % not totalling 100 → 400");
+
+    r = await req("POST", "/api/strategies/update", { key: "A", stopLoss: -35 }, alice.token);
+    assert(r.status === 200 && r.json.strategy.stopLoss === -35, "Built-in strategy A is editable over HTTP");
+
+    r = await req("POST", "/api/strategies/update", { key: "NOPE", stopLoss: -35 }, alice.token);
+    assert(r.status === 400, "Updating an unknown strategy key → 400");
+
+    r = await req("POST", "/api/settings/update", { activeStrategy: "ZZZ" }, alice.token);
+    assert(r.status === 400, "Activating an unknown strategy → 400");
+
+    r = await req("POST", "/api/settings/update", { activeStrategy: customKey }, alice.token);
+    assert(r.status === 200 && r.json.settings.activeStrategy === customKey, "Activating a custom strategy → applied");
+
+    r = await req("POST", "/api/strategies/delete", { key: customKey }, alice.token);
+    assert(r.status === 400, "Cannot delete the ACTIVE strategy");
+
+    r = await req("POST", "/api/settings/update", { activeStrategy: "A" }, alice.token);
+    assert(r.status === 200, "Switch back to A");
+    r = await req("POST", "/api/strategies/delete", { key: customKey }, alice.token);
+    assert(r.status === 200, "Delete works once no longer active");
+
+    console.log("\n── Entry rules (editable buy conditions) ──");
+    r = await req("GET", "/api/status", null, alice.token);
+    assert(r.json.settings.entryRules && Array.isArray(r.json.settings.entryRules.conditions),
+      "Status exposes entryRules with conditions");
+    assert(r.json.settings.entryRules.enabled === true, "Entry rules default to ENABLED (no instant buys)");
+
+    r = await req("POST", "/api/settings/update", { entryRules: { enabled: true, logic: "ALL", conditions: [] } }, alice.token);
+    assert(r.status === 400, "Empty conditions while enabled → 400");
+
+    r = await req("POST", "/api/settings/update", { entryRules: { enabled: true, logic: "NOPE", conditions: [{ timeframe: "h1", operator: "lte", changePct: -40 }] } }, alice.token);
+    assert(r.status === 400, "Bogus logic value → 400");
+
+    r = await req("POST", "/api/settings/update", { entryRules: { enabled: true, logic: "ANY", conditions: [{ timeframe: "h1", operator: "lte", changePct: -40 }] } }, alice.token);
+    assert(r.status === 200 && r.json.settings.entryRules.logic === "ANY", "Valid entry rules persist");
+
+    r = await req("POST", "/api/scan/now", {}, alice.token);
+    assert(r.status === 200 && r.json.results.opened.length === 0, "Scan with unmet entry rules opens NOTHING (mock market is flat)");
+    assert(r.json.results.skipped.length > 0, "Skipped rows explain what failed");
+
+    r = await req("POST", "/api/settings/update", { entryRules: { enabled: false, logic: "ALL", conditions: [] } }, alice.token);
+    assert(r.status === 200, "Disabling entry rules is allowed (with empty conditions)");
+    r = await req("POST", "/api/scan/now", {}, alice.token);
+    assert(r.status === 200 && r.json.results.opened.length > 0, "With rules off, scan buys immediately (old behavior)");
+
     console.log("\n── Static dashboard ──");
     const staticRes = await fetch(BASE + "/");
     assert(staticRes.status === 200, "GET / serves the dashboard");

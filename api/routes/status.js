@@ -4,7 +4,7 @@ const router  = express.Router();
 const { requireProfile } = require("../middleware/auth");
 const { getBnbBalance, getWalletInfo } = require("../lib/wallet");
 const { getPositions, getStats, getSettings, getTokens } = require("../lib/redis");
-const { getStrategy } = require("../config/strategies");
+const strategyStore = require("../lib/strategies");
 
 router.get("/", requireProfile, async (req, res) => {
   try {
@@ -23,7 +23,9 @@ router.get("/", requireProfile, async (req, res) => {
       try { bnbBalance = await getBnbBalance(profileId); } catch { /* RPC hiccup */ }
     }
 
-    const strategy = getStrategy(settings.activeStrategy);
+    // Strategy name/ladder for the dashboard — tolerate it being
+    // missing (e.g. mid-edit) rather than failing the whole status poll
+    const strategy = await strategyStore.getStrategyByKey(profileId, settings.activeStrategy).catch(() => null);
 
     res.json({
       ok: true,

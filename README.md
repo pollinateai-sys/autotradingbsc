@@ -28,7 +28,8 @@ There's no shared login. Each person:
 | Section | What it does |
 |---|---|
 | **Bot Controls** | Start/stop, live vs. simulated trading, bankroll % per trade, max open trades, slippage, min liquidity, scan interval |
-| **Strategy Manager** | Three built-in stop-loss / take-profit ladders (A/B/C) — click to switch instantly |
+| **Entry Logic** | Editable buy conditions (default: 1h dump ≥40% AND 24h gain ≥100%) — the bot waits for your setup instead of buying instantly |
+| **Strategy Manager** | Stop-loss / take-profit ladders — edit any SL/TP, add your own strategies, delete unused ones, click a card to switch |
 | **Token Manager** | Add any BEP20 contract address; the bot reads its symbol/name on-chain |
 | **Open Positions** | Live entry/current price, P&L, TP progress, next target, time held |
 | **Trade History** | Every buy / TP / stop-loss / manual close, with win rate and BscScan links |
@@ -98,7 +99,8 @@ connects their own wallet from inside their own dashboard.
 ```bash
 npm test
 ```
-71 checks across encryption round-trips, strategy math, and the full HTTP API — including
+100+ checks across encryption round-trips, strategy math, custom-strategy CRUD and
+validation, entry-rule evaluation and scanner gating, and the full HTTP API — including
 a dedicated test that two profiles can never see or affect each other's wallet, positions,
 or settings. No real funds, network calls, or Redis instance involved.
 
@@ -128,7 +130,12 @@ To keep it running after closing Termux, run it inside a `tmux`/`screen` session
 
 ---
 
-## 📐 Strategies
+## 📐 Strategies — fully editable
+
+Every profile starts with the built-in ladders below (seeded on first use) — then they're
+**fully yours**: edit any stop loss or take-profit, **add your own strategies**, or
+**delete** what you don't use, all live from the dashboard's Strategy Manager. No
+redeploys, no file edits.
 
 | | Strategy A | Strategy B | Strategy C |
 |---|---|---|---|
@@ -138,9 +145,34 @@ To keep it running after closing Termux, run it inside a `tmux`/`screen` session
 | **TP3** | +200% → sell 25% | +200% → sell 25% | +100% → sell 25% |
 | **TP4** | +400% → sell 25% | +400% → sell 20% | +150% → sell 15% |
 
-Add your own in `api/config/strategies.js` — sell percentages across all TPs must total 100%.
-Stop loss exits the *remaining* position at once (not proportionally), since by
-definition something has gone wrong and the priority is capital preservation.
+Rules enforced when saving (these numbers move real money):
+- Stop loss between −95% and 0%; it exits the *remaining* position at once, since by
+  definition something has gone wrong and the priority is capital preservation.
+- 1–6 take-profit levels, targets strictly ascending, sell percentages (of the
+  **original** position) totalling exactly 100%.
+- Up to 12 strategies per profile. A strategy can't be deleted while it's your
+  active one or while an open position is following it.
+- Open positions keep following the strategy they were **opened** with — editing
+  that strategy's ladder updates what the position follows from its next check.
+
+API: `GET /api/strategies` · `POST /api/strategies` · `POST /api/strategies/update` ·
+`POST /api/strategies/delete` (all scoped to your profile by `x-api-key`).
+
+## 🎯 Entry Logic — when the bot buys (editable)
+
+The bot **no longer buys instantly** when you press Start. Each profile has its own
+editable entry rules (dashboard → **Entry Logic**) evaluated on every scan against
+DexScreener's price-change data — no extra API calls needed:
+
+- **Default (dip-buy on a runner)**: `1h change ≤ −40%` **AND** `24h change ≥ +100%` —
+  only buy a violent dump on something with real momentum.
+- Up to **5 conditions**, each on the **5m / 1h / 6h / 24h** window with a **≤ or ≥**
+  threshold you choose.
+- **ALL must pass** (strict) or **ANY can pass** (loose) mode.
+- **Toggle off** to restore the old behavior (buy every enabled token that passes your
+  liquidity floor).
+- Skipped tokens tell you why: scan results show e.g. `✗ 1h +6.2% (needs ≤ -40%)`.
+- Deliberate **manual buys** bypass entry rules — the gate only stops the *automatic* ones.
 
 ---
 
@@ -196,6 +228,8 @@ autotradingbsc/
 │   ├── lib/
 │   │   ├── crypto.js         ← AES-256-GCM wallet encryption, API key hashing
 │   │   ├── redis.js          ← Profile registry + all per-profile state
+│   │   ├── strategies.js     ← Per-profile editable SL/TP ladders (CRUD + validation)
+│   │   ├── entryrules.js     ← Editable "when to buy" conditions (pure logic)
 │   │   ├── wallet.js         ← Connect/disconnect, decrypt-on-demand signer
 │   │   ├── pancakeswap.js    ← Spot swap execution (takes an explicit signer)
 │   │   ├── market.js         ← DexScreener prices + on-chain token metadata
@@ -203,8 +237,9 @@ autotradingbsc/
 │   │   ├── scanner.js        ← Per-profile cycle + runs-every-profile helper
 │   │   └── telegram.js       ← Optional alerts
 │   └── routes/
-│       ├── profiles.js        ← Create profile, whoami
+│       ├── auth.js            ← Register/login, session tokens
 │       ├── wallet.js          ← Connect/disconnect/status
+│       ├── strategies.js      ← Strategy CRUD (add/edit/delete ladders)
 │       └── status.js  trade.js  positions.js  tokens.js  settings.js  scan.js
 ├── public/
 │   └── index.html             ← The dashboard (vanilla HTML/CSS/JS, no build step)

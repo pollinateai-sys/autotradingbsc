@@ -4,6 +4,7 @@
 //  the profile registry and wallet record storage).
 // ============================================================
 const DEFAULT_TOKENS = require("../../api/config/tokens");
+const { DEFAULT_ENTRY_RULES } = require("../../api/lib/entryrules");
 const {
   hashPassword, verifyPassword, hashToken, generateSessionToken, newProfileId,
 } = require("../../api/lib/crypto"); // pure functions (bcrypt/sha256), safe to use for real in tests
@@ -121,13 +122,24 @@ const DEFAULT_SETTINGS = {
   maxSlippagePercent: 1.0, minLiquidityUsd: 10000, autoTrade: true,
   botRunning: false, scanIntervalSeconds: 5, minBnbReserve: 0.01,
 };
-async function getSettings(profileId) { return { ...DEFAULT_SETTINGS, ...getJson(`profile:${profileId}:settings`, {}) }; }
+async function getSettings(profileId) {
+  const merged = { ...DEFAULT_SETTINGS, ...getJson(`profile:${profileId}:settings`, {}) };
+  // Mirror the real redis.js: entryRules default, deep-cloned
+  if (!merged.entryRules || typeof merged.entryRules !== "object" || !Array.isArray(merged.entryRules.conditions)) {
+    merged.entryRules = JSON.parse(JSON.stringify(DEFAULT_ENTRY_RULES));
+  }
+  return merged;
+}
 async function updateSettings(profileId, patch) {
   const current = await getSettings(profileId);
   const updated = { ...current, ...patch };
   setJson(`profile:${profileId}:settings`, updated);
   return updated;
 }
+
+// ── Strategies (raw storage — seeding/CRUD lives in api/lib/strategies.js) ──
+async function getStrategies(profileId)          { return getJson(`profile:${profileId}:strategies`, null); }
+async function saveStrategies(profileId, list)    { return setJson(`profile:${profileId}:strategies`, list); }
 
 // ── Tokens ────────────────────────────────────────────────────
 async function getTokens(profileId) {
@@ -166,5 +178,6 @@ module.exports = {
   getPositions, savePositions, getPosition, setPosition, deletePosition,
   appendTradeLog, getTradeLog, getStats, updateStats,
   getSettings, updateSettings, getTokens, saveTokens, addToken, removeToken, toggleToken,
+  getStrategies, saveStrategies,
   _debugStore: store, // exposed for test assertions only
 };

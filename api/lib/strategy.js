@@ -4,7 +4,7 @@
 //  positions using that profile's own decrypted wallet.
 // ============================================================
 
-const { getStrategy }     = require("../config/strategies");
+const { getStrategyByKey, resolvePositionStrategy } = require("./strategies");
 const { buyToken, sellToken, getCurrentPriceBnb } = require("./dex");
 const { getSignerWallet, getBnbBalance, getTokenBalance, getProvider } = require("./wallet");
 const { getTokenInfo }    = require("./market");
@@ -19,7 +19,7 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 // ────────────────────────────────────────────────────────────
 async function openPosition(profileId, token) {
   const settings  = await getSettings(profileId);
-  const strategy  = getStrategy(settings.activeStrategy);
+  const strategy  = await getStrategyByKey(profileId, settings.activeStrategy);
 
   // In simulation mode we never touch the chain — no RPC calls, no signing.
   // We still need a signer wallet to confirm one is connected (so the person
@@ -91,7 +91,10 @@ async function checkAndExecuteExits(profileId, symbol) {
   if (!position || position.remainingTokens <= 0) return null;
 
   const settings     = await getSettings(profileId);
-  const strategy     = getStrategy(position.strategyKey || settings.activeStrategy);
+  // Follow the strategy this position was OPENED with (its ladder was
+  // snapshotted at buy time via strategyKey) — if it's since been edited,
+  // the position follows the latest saved version of that same strategy.
+  const strategy     = await resolvePositionStrategy(profileId, position, settings);
   const currentPrice = await getCurrentPriceBnb(getProvider(), position.contract);
   if (!currentPrice) return null;
 

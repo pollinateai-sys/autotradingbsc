@@ -1,6 +1,11 @@
 // ============================================================
-//  TRADING STRATEGIES — SL + Multi-TP
-//  Change activeStrategy in your Vercel env vars (ACTIVE_STRATEGY)
+//  DEFAULT TRADING STRATEGIES — seed only
+//
+//  These are the built-in ladders every NEW profile starts with.
+//  Once seeded, strategies live per-profile in Redis and are
+//  fully editable (edit / add / delete) from the dashboard —
+//  see api/lib/strategies.js. Editing THIS file only changes
+//  what future profiles get seeded with, not existing ones.
 // ============================================================
 const STRATEGIES = {
 

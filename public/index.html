@@ -465,6 +465,90 @@
 
   .skeleton{ background:linear-gradient(90deg, var(--surface-2) 25%, var(--surface-3) 50%, var(--surface-2) 75%); background-size:200% 100%; animation:shimmer 1.4s infinite; border-radius:4px; }
   @keyframes shimmer{ 0%{ background-position:200% 0; } 100%{ background-position:-200% 0; } }
+
+  /* ── Entry rules (buy conditions) editor ─────────────────── */
+  .rules-top{ display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:16px; }
+  .seg{ display:inline-flex; background:var(--surface-2); border:1px solid var(--border); border-radius:var(--radius-sm); padding:3px; gap:3px; }
+  .seg button{ background:transparent; border:none; color:var(--text-dim); font-size:12px; font-weight:600; padding:7px 12px; border-radius:5px; }
+  .seg button.active{ background:var(--jade); color:#062017; }
+  .rule-rows{ display:flex; flex-direction:column; gap:8px; margin-bottom:12px; }
+  .rule-row{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .rule-row .rule-prefix{ font-size:11px; color:var(--gold); width:46px; font-family:var(--font-mono); font-weight:700; letter-spacing:0.5px; flex-shrink:0; }
+  .rule-row select, .rule-row input{
+    background:var(--surface-2); border:1px solid var(--border); color:var(--text);
+    padding:8px 10px; border-radius:var(--radius-sm); font-size:13px; font-family:var(--font-mono);
+  }
+  .rule-row select:focus, .rule-row input:focus{ border-color:var(--jade); outline:none; }
+  .rule-row input[type=number]{ width:110px; }
+  .rule-row .rule-words{ font-size:12px; color:var(--text-dim); }
+  .rules-summary{
+    background:var(--surface-2); border:1px dashed var(--border); border-radius:var(--radius-sm);
+    padding:10px 12px; font-size:12.5px; color:var(--gold); font-family:var(--font-mono);
+    margin:14px 0; line-height:1.7;
+  }
+  .rules-summary .dim{ color:var(--text-dim); }
+  .rules-off-note{ font-size:12.5px; color:var(--text-dim); margin-bottom:14px; line-height:1.6; }
+  .skip-reasons{ margin-top:10px; font-size:11.5px; color:var(--text-dim); font-family:var(--font-mono); line-height:1.8; max-height:130px; overflow-y:auto; }
+
+  /* ── Strategy card actions + "new" card ───────────────────── */
+  .strategy-card .card-actions{ position:absolute; top:12px; right:12px; display:flex; gap:6px; }
+  .strategy-card.active .card-actions{ top:42px; }
+  .strat-action{
+    width:26px; height:26px; border-radius:6px; border:1px solid var(--border);
+    background:var(--surface-2); color:var(--text-dim); font-size:12px;
+    display:inline-flex; align-items:center; justify-content:center;
+    transition:border-color 0.15s, color 0.15s;
+  }
+  .strat-action:hover{ border-color:var(--gold); color:var(--gold); }
+  .strat-action.danger:hover{ border-color:var(--red); color:var(--red); }
+  .strategy-card.new-card{
+    border-style:dashed; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:6px; color:var(--text-faint); min-height:190px; cursor:pointer; text-align:center; padding:18px;
+  }
+  .strategy-card.new-card:hover{ border-color:var(--jade); color:var(--jade); }
+  .strategy-card.new-card .plus{ font-size:28px; font-weight:300; line-height:1; }
+  .strategy-card .builtin-tag{
+    font-size:9px; font-weight:700; letter-spacing:0.5px; color:var(--text-faint);
+    border:1px solid var(--border); padding:2px 7px; border-radius:999px; margin-left:8px;
+    vertical-align:middle;
+  }
+
+  /* ── Modal (strategy editor) ─────────────────────────────── */
+  .modal-overlay{
+    position:fixed; inset:0; background:rgba(6,12,10,0.85); backdrop-filter:blur(6px);
+    display:none; align-items:center; justify-content:center; z-index:400; padding:20px;
+  }
+  .modal-overlay.show{ display:flex; }
+  .modal-box{
+    background:var(--surface); border:1px solid var(--border); border-radius:14px;
+    padding:24px; max-width:470px; width:100%; max-height:90vh; overflow-y:auto;
+    box-shadow:0 20px 60px -20px rgba(0,0,0,0.7);
+  }
+  .modal-box h3{ font-size:16px; margin-bottom:4px; }
+  .modal-box .modal-sub{ font-size:12px; color:var(--text-dim); margin-bottom:18px; line-height:1.6; }
+  .modal-box .field{ margin-bottom:14px; }
+  .modal-box .field > label{ font-size:12px; color:var(--text-dim); display:block; margin-bottom:6px; }
+  .modal-box input[type=text], .modal-box input[type=number]{
+    width:100%; background:var(--surface-2); border:1px solid var(--border); color:var(--text);
+    padding:10px 12px; border-radius:var(--radius-sm); font-size:13px; font-family:var(--font-mono);
+  }
+  .modal-box input:focus{ border-color:var(--jade); outline:none; }
+  .tp-edit-head{ display:flex; justify-content:space-between; align-items:baseline; gap:10px; margin-bottom:10px; }
+  .tp-edit-head .lbl{ font-size:11.5px; color:var(--text-dim); line-height:1.5; }
+  .tp-edit-head .total{ font-family:var(--font-mono); font-size:12px; font-weight:700; white-space:nowrap; }
+  .tp-edit-head .total.ok{ color:var(--jade); }
+  .tp-edit-head .total.bad{ color:var(--red); }
+  .tp-edit-row{ display:flex; gap:8px; align-items:center; margin-bottom:8px; }
+  .tp-edit-row .tp-num{ font-family:var(--font-mono); font-size:11px; color:var(--text-faint); width:28px; flex-shrink:0; }
+  .tp-edit-row .input-wrap{ position:relative; flex:1; }
+  .tp-edit-row .input-wrap .suffix{
+    position:absolute; right:10px; top:50%; transform:translateY(-50%);
+    font-size:10.5px; color:var(--text-faint); font-family:var(--font-mono); pointer-events:none;
+  }
+  .tp-edit-row input{ padding-right:52px !important; }
+  .modal-actions{ display:flex; gap:10px; margin-top:18px; }
+  .modal-actions .btn{ flex:1; justify-content:center; }
+  .modal-error{ font-size:12px; color:var(--red); margin-top:12px; min-height:1em; line-height:1.5; }
 </style>
 
 <!-- ── Profile gate (shown until a valid personal API key is stored) ── -->
@@ -610,17 +694,59 @@
       <button class="btn btn-gold" id="scanNowBtn">⚡ Scan Now</button>
       <span class="scan-result" id="scanResultText"></span>
     </div>
+    <div class="skip-reasons" id="skipReasons"></div>
   </div>
 
   <!-- ══════════════════════════════════════════════════════════
-       SECTION 2 — STRATEGY MANAGER
+       SECTION 2 — ENTRY LOGIC (when to buy)
+  ══════════════════════════════════════════════════════════ -->
+  <div class="divider"><span class="star8"></span></div>
+  <div class="section-head">
+    <div>
+      <div class="section-eyebrow"><span class="star8"></span><span>Buy Conditions</span></div>
+      <div class="section-title">Entry Logic</div>
+      <div class="section-sub">The bot only buys when these conditions pass — no more instant buying the moment you hit Start. Default: coin has <b>dumped ≥ 40% in the last hour</b> AND is still <b>up ≥ 100% over 24h</b> (a violent dip on a strong runner). Edit anything below.</div>
+    </div>
+  </div>
+  <div class="card card-pad">
+    <div class="rules-top">
+      <div class="toggle-row" style="flex:1;min-width:260px;">
+        <div>
+          <div style="font-weight:600;font-size:13.5px;">Wait for entry conditions</div>
+          <div class="desc">Off = buy every enabled token that passes the liquidity floor (old behavior)</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="entryRulesEnabled" checked><span class="track"></span><span class="thumb"></span></label>
+      </div>
+      <div class="seg" id="entryLogicSeg">
+        <button data-logic="ALL" class="active">ALL must pass</button>
+        <button data-logic="ANY">ANY can pass</button>
+      </div>
+    </div>
+
+    <div id="entryRulesBody">
+      <div class="rule-rows" id="ruleRows"></div>
+      <button class="btn btn-ghost btn-sm" id="addRuleBtn">+ Add condition</button>
+      <div class="rules-summary" id="rulesSummary"></div>
+    </div>
+    <div class="rules-off-note" id="rulesOffNote" style="display:none;">
+      Entry conditions are <b>off</b> — the bot will buy every enabled token that passes your liquidity floor, immediately on each scan. Turn this back on to wait for a proper setup first.
+    </div>
+
+    <div class="controls-actions" style="margin-top:0;">
+      <button class="btn btn-primary" id="saveEntryRulesBtn">Save Entry Logic</button>
+      <span class="scan-result" id="entryRulesMsg"></span>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       SECTION 3 — STRATEGY MANAGER
   ══════════════════════════════════════════════════════════ -->
   <div class="divider"><span class="star8"></span></div>
   <div class="section-head">
     <div>
       <div class="section-eyebrow"><span class="star8"></span><span>Exit Rules</span></div>
       <div class="section-title">Strategy Manager</div>
-      <div class="section-sub">Pick the stop-loss / take-profit ladder every new position will follow.</div>
+      <div class="section-sub">Click a card to make it active. Every ladder is fully editable — change the stop loss or any take-profit, add your own strategy, or delete what you don't use. Open positions keep following the strategy they were opened with.</div>
     </div>
   </div>
   <div class="strategy-grid" id="strategyGrid">
@@ -751,6 +877,33 @@
 
 </div>
 
+<!-- ── Strategy editor modal ───────────────────────────────── -->
+<div class="modal-overlay" id="strategyModal">
+  <div class="modal-box">
+    <h3 id="strategyModalTitle">Edit Strategy</h3>
+    <div class="modal-sub" id="strategyModalSub"></div>
+    <div class="field">
+      <label>Strategy name</label>
+      <input type="text" id="stratNameInput" maxlength="48" placeholder="e.g. My Dip Catcher">
+    </div>
+    <div class="field">
+      <label>Stop loss — sells the entire remaining position at once (negative %)</label>
+      <input type="number" id="stratSlInput" min="-95" max="0" step="1" placeholder="-40">
+    </div>
+    <div class="tp-edit-head">
+      <span class="lbl">Take-profit ladder — at each target, sell this % of the ORIGINAL position. Sell %s must total 100%.</span>
+      <span class="total" id="tpTotalLabel">0%</span>
+    </div>
+    <div id="tpEditRows"></div>
+    <button class="btn btn-ghost btn-sm" id="addTpRowBtn" style="margin-top:6px;">+ Add TP level</button>
+    <div class="modal-error" id="strategyModalError"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="strategyModalCancel">Cancel</button>
+      <button class="btn btn-primary" id="strategyModalSave">Save Strategy</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast-stack" id="toastStack"></div>
 
 <script>
@@ -770,6 +923,9 @@ let SESSION_TOKEN  = localStorage.getItem("sessionToken") || "";
 let firstLoad       = true;
 let walletConnected = false;
 let strategiesList  = [];
+let activeStrategyKey  = "A";
+let entryRulesDraft    = null; // working copy while editing buy conditions
+let editingStrategyKey = null; // null in the modal = creating a new strategy
 let tokensCache     = [];
 let historyCache    = [];
 let historyFilter   = "all";
@@ -1032,7 +1188,8 @@ function renderStatus(status){
   document.getElementById("statLastScan").textContent = timeAgo(status.stats.lastScan);
 
   document.getElementById("autoTradeToggle").dataset.serverValue = status.settings.autoTrade;
-  updateActiveStrategyCard(status.settings.activeStrategy);
+  activeStrategyKey = status.settings.activeStrategy;
+  updateActiveStrategyCard(activeStrategyKey);
 
   if (firstLoad) populateControls(status.settings);
 }
@@ -1047,6 +1204,7 @@ function populateControls(settings){
   document.getElementById("minLiqInput").value = settings.minLiquidityUsd;
   document.getElementById("scanIntervalInput").value = settings.scanIntervalSeconds;
   document.getElementById("minBnbReserveInput").value = settings.minBnbReserve;
+  renderEntryRulesEditor(settings.entryRules);
 }
 
 document.getElementById("autoTradeToggle").addEventListener("change", (e) => {
@@ -1096,12 +1254,17 @@ document.getElementById("saveSettingsBtn").addEventListener("click", async () =>
 document.getElementById("scanNowBtn").addEventListener("click", async () => {
   const btn = document.getElementById("scanNowBtn");
   const resultEl = document.getElementById("scanResultText");
+  const skipEl = document.getElementById("skipReasons");
   btn.disabled = true;
   resultEl.textContent = "Scanning…";
+  skipEl.innerHTML = "";
   try {
     const data = await api("POST", "/api/scan/now");
     const r = data.results;
     resultEl.textContent = `✅ Opened ${r.opened.length} · Skipped ${r.skipped.length} · Errors ${r.errors.length} (${(data.durationMs/1000).toFixed(1)}s)`;
+    // Show WHY tokens were skipped (e.g. which entry condition failed)
+    const lines = (r.skipped || []).slice(0, 6).map(s => `<div>▸ <b>${esc(s.symbol)}</b> — ${esc(s.reason)}</div>`);
+    skipEl.innerHTML = lines.join("");
     toast("Scan complete");
     await refreshAll();
   } catch (e) {
@@ -1111,13 +1274,26 @@ document.getElementById("scanNowBtn").addEventListener("click", async () => {
   btn.disabled = false;
 });
 
-// ── Strategy cards ───────────────────────────────────────
+// ── Strategy cards (editable, add/delete) ─────────────────
+async function refreshStrategies(){
+  try {
+    const { strategies, activeStrategy } = await api("GET", "/api/strategies");
+    strategiesList = strategies;
+    if (activeStrategy) activeStrategyKey = activeStrategy;
+    renderStrategyGrid(strategies);
+  } catch (e) { console.warn("Strategies refresh failed:", e.message); }
+}
+
 function renderStrategyGrid(strategies){
   const grid = document.getElementById("strategyGrid");
   grid.innerHTML = strategies.map(s => `
-    <div class="strategy-card" data-key="${s.key}">
+    <div class="strategy-card" data-key="${esc(s.key)}">
       <span class="badge">ACTIVE</span>
-      <h3>${esc(s.name)}</h3>
+      <div class="card-actions">
+        <button class="strat-action editStratBtn" data-key="${esc(s.key)}" title="Edit this strategy">✎</button>
+        <button class="strat-action danger deleteStratBtn" data-key="${esc(s.key)}" title="Delete this strategy">✕</button>
+      </div>
+      <h3>${esc(s.name)}${s.builtIn ? '<span class="builtin-tag">BUILT-IN</span>' : ""}</h3>
       <div class="key">STRATEGY ${esc(s.key)}</div>
       <div class="sl-row"><span class="lbl">Stop Loss</span><span class="num">${s.stopLoss}%</span></div>
       <div class="tp-list">
@@ -1131,24 +1307,246 @@ function renderStrategyGrid(strategies){
         `).join("")}
       </div>
     </div>
-  `).join("");
+  `).join("") + `
+    <div class="strategy-card new-card" id="newStrategyCard">
+      <div class="plus">+</div>
+      <div style="font-size:13px;font-weight:600;">New Strategy</div>
+      <div style="font-size:11px;">Build your own stop-loss / take-profit ladder</div>
+    </div>`;
 
-  grid.querySelectorAll(".strategy-card").forEach(card => {
+  // Card click = activate (clicks on edit/delete are stopped below)
+  grid.querySelectorAll(".strategy-card:not(.new-card)").forEach(card => {
     card.addEventListener("click", async () => {
       const key = card.dataset.key;
+      if (key === activeStrategyKey) return;
       try {
         const { settings } = await api("POST", "/api/settings/update", { activeStrategy: key });
-        updateActiveStrategyCard(settings.activeStrategy);
-        toast(`Active strategy set to ${key}`);
+        activeStrategyKey = settings.activeStrategy;
+        updateActiveStrategyCard(activeStrategyKey);
+        toast(`Active strategy set to ${key} — new entries will follow it`);
       } catch (e) { toast(e.message, true); }
     });
   });
+  grid.querySelectorAll(".editStratBtn").forEach(btn => {
+    btn.addEventListener("click", (e) => { e.stopPropagation(); strategyModalOpen(btn.dataset.key); });
+  });
+  grid.querySelectorAll(".deleteStratBtn").forEach(btn => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const key = btn.dataset.key;
+      const s = strategiesList.find(x => x.key === key);
+      if (!confirm(`Delete strategy "${s ? s.name : key}"?\n\nThis cannot be undone.`)) return;
+      try {
+        await api("POST", "/api/strategies/delete", { key });
+        toast(`Strategy "${s ? s.name : key}" deleted`);
+        await refreshStrategies();
+      } catch (err) { toast(err.message, true); }
+    });
+  });
+  document.getElementById("newStrategyCard").addEventListener("click", () => strategyModalOpen(null));
+
+  updateActiveStrategyCard(activeStrategyKey);
 }
 function updateActiveStrategyCard(activeKey){
+  if (!activeKey) return;
   document.querySelectorAll(".strategy-card").forEach(card => {
     card.classList.toggle("active", card.dataset.key === activeKey);
   });
 }
+
+// ── Entry rules (buy conditions) editor ────────────────────
+const RULE_TF_LABELS = { m5: "5-min", h1: "1-hour", h6: "6-hour", h24: "24-hour" };
+const RULE_OP_SYMBOLS = { lte: "≤", gte: "≥" };
+
+function renderEntryRulesEditor(rules){
+  entryRulesDraft = JSON.parse(JSON.stringify(
+    rules || { enabled: true, logic: "ALL", conditions: [{ timeframe: "h1", operator: "lte", changePct: -40 }] }
+  ));
+  document.getElementById("entryRulesEnabled").checked = !!entryRulesDraft.enabled;
+  document.querySelectorAll("#entryLogicSeg button").forEach(b => {
+    b.classList.toggle("active", b.dataset.logic === entryRulesDraft.logic);
+  });
+  renderRuleRows();
+  syncEntryRulesVisibility();
+}
+function syncEntryRulesVisibility(){
+  const on = !!(entryRulesDraft && entryRulesDraft.enabled);
+  document.getElementById("entryRulesBody").style.display = on ? "block" : "none";
+  document.getElementById("rulesOffNote").style.display = on ? "none" : "block";
+}
+function renderRuleRows(){
+  const wrap = document.getElementById("ruleRows");
+  const conds = entryRulesDraft.conditions;
+  wrap.innerHTML = conds.map((c, i) => `
+    <div class="rule-row" data-i="${i}">
+      <span class="rule-prefix">${i === 0 ? "WHEN" : (entryRulesDraft.logic === "ANY" ? "OR" : "AND")}</span>
+      <select class="rule-tf">
+        ${Object.keys(RULE_TF_LABELS).map(tf => `<option value="${tf}" ${c.timeframe === tf ? "selected" : ""}>${RULE_TF_LABELS[tf]} change</option>`).join("")}
+      </select>
+      <select class="rule-op">
+        <option value="lte" ${c.operator === "lte" ? "selected" : ""}>≤ at most</option>
+        <option value="gte" ${c.operator === "gte" ? "selected" : ""}>≥ at least</option>
+      </select>
+      <input type="number" class="rule-val" step="1" min="-100" max="10000" value="${c.changePct}">
+      <span class="rule-words">%</span>
+      <button class="icon-btn rule-remove" title="Remove condition">✕</button>
+    </div>
+  `).join("") + (conds.length === 0
+      ? `<div class="rules-off-note">No conditions yet — add one below, or turn entry rules off to buy immediately.</div>`
+      : "");
+
+  wrap.querySelectorAll(".rule-row").forEach(row => {
+    const i = parseInt(row.dataset.i, 10);
+    row.querySelector(".rule-tf").addEventListener("change", e => { entryRulesDraft.conditions[i].timeframe = e.target.value; updateRulesSummary(); });
+    row.querySelector(".rule-op").addEventListener("change", e => { entryRulesDraft.conditions[i].operator = e.target.value; updateRulesSummary(); });
+    row.querySelector(".rule-val").addEventListener("input", e => { entryRulesDraft.conditions[i].changePct = parseFloat(e.target.value); updateRulesSummary(); });
+    row.querySelector(".rule-remove").addEventListener("click", () => {
+      entryRulesDraft.conditions.splice(i, 1);
+      renderRuleRows();
+    });
+  });
+  updateRulesSummary();
+}
+function ruleToWords(c){
+  return `${RULE_TF_LABELS[c.timeframe] || c.timeframe} ${RULE_OP_SYMBOLS[c.operator] || c.operator} ${c.changePct}%`;
+}
+function updateRulesSummary(){
+  const el = document.getElementById("rulesSummary");
+  if (!entryRulesDraft || !entryRulesDraft.conditions.length) {
+    el.innerHTML = `<span class="dim">Nothing to evaluate yet.</span>`;
+    return;
+  }
+  const joiner = entryRulesDraft.logic === "ANY" ? ' <span class="dim">OR</span> ' : ' <span class="dim">AND</span> ';
+  el.innerHTML = `<span class="dim">Buy only when:</span> ` +
+    entryRulesDraft.conditions.map(c => esc(ruleToWords(c))).join(joiner);
+}
+document.getElementById("entryRulesEnabled").addEventListener("change", e => {
+  if (!entryRulesDraft) return;
+  entryRulesDraft.enabled = e.target.checked;
+  syncEntryRulesVisibility();
+});
+document.querySelectorAll("#entryLogicSeg button").forEach(b => {
+  b.addEventListener("click", () => {
+    if (!entryRulesDraft) return;
+    entryRulesDraft.logic = b.dataset.logic;
+    document.querySelectorAll("#entryLogicSeg button").forEach(x => x.classList.toggle("active", x === b));
+    renderRuleRows();
+  });
+});
+document.getElementById("addRuleBtn").addEventListener("click", () => {
+  if (!entryRulesDraft) return;
+  if (entryRulesDraft.conditions.length >= 5) { toast("Maximum 5 conditions", true); return; }
+  entryRulesDraft.conditions.push({ timeframe: "h1", operator: "lte", changePct: -20 });
+  renderRuleRows();
+});
+document.getElementById("saveEntryRulesBtn").addEventListener("click", async () => {
+  const btn = document.getElementById("saveEntryRulesBtn");
+  const msg = document.getElementById("entryRulesMsg");
+  btn.disabled = true; msg.textContent = "";
+  try {
+    const payload = {
+      enabled:    entryRulesDraft.enabled,
+      logic:      entryRulesDraft.logic,
+      conditions: entryRulesDraft.conditions.filter(c => isFinite(c.changePct)),
+    };
+    const { settings } = await api("POST", "/api/settings/update", { entryRules: payload });
+    renderEntryRulesEditor(settings.entryRules);
+    toast(payload.enabled
+      ? "Entry logic saved — the bot now waits for your setup before buying"
+      : "Entry logic off — the bot buys immediately again");
+  } catch (e) { msg.textContent = e.message; toast(e.message, true); }
+  btn.disabled = false;
+});
+
+// ── Strategy editor modal ──────────────────────────────────
+const strategyModal = document.getElementById("strategyModal");
+
+function strategyModalOpen(key){
+  editingStrategyKey = key || null;
+  const s = key ? strategiesList.find(x => x.key === key) : null;
+  document.getElementById("strategyModalTitle").textContent = s ? `Edit — ${s.name}` : "New Strategy";
+  document.getElementById("strategyModalSub").textContent = s
+    ? "Changes apply instantly to NEW entries. Any open position following this strategy will use the updated ladder from its next check."
+    : "Build your own stop-loss / take-profit ladder. Sell percentages must total exactly 100%.";
+  document.getElementById("stratNameInput").value = s ? s.name : "";
+  document.getElementById("stratSlInput").value = s ? s.stopLoss : -40;
+  document.getElementById("strategyModalError").textContent = "";
+  renderTpEditRows(s ? s.takeProfits : [{ targetPercent: 100, sellPercent: 100 }]);
+  strategyModal.classList.add("show");
+  setTimeout(() => document.getElementById("stratNameInput").focus(), 60);
+}
+function strategyModalClose(){ strategyModal.classList.remove("show"); editingStrategyKey = null; }
+
+function renderTpEditRows(tps){
+  const wrap = document.getElementById("tpEditRows");
+  wrap.innerHTML = tps.map(tp => `
+    <div class="tp-edit-row">
+      <span class="tp-num">TP</span>
+      <div class="input-wrap"><input type="number" class="tp-target" min="0.1" max="10000" step="1" value="${tp.targetPercent}"><span class="suffix">% gain</span></div>
+      <div class="input-wrap"><input type="number" class="tp-sell" min="0.1" max="100" step="1" value="${tp.sellPercent}"><span class="suffix">sell %</span></div>
+      <button class="icon-btn tp-remove" title="Remove level">✕</button>
+    </div>
+  `).join("");
+  renumberTpRows();
+  wrap.querySelectorAll(".tp-target, .tp-sell").forEach(inp => inp.addEventListener("input", updateTpTotal));
+  wrap.querySelectorAll(".tp-remove").forEach(btn => btn.addEventListener("click", () => {
+    if (wrap.querySelectorAll(".tp-edit-row").length <= 1) { toast("A strategy needs at least one TP level", true); return; }
+    btn.closest(".tp-edit-row").remove();
+    renumberTpRows(); updateTpTotal();
+  }));
+  updateTpTotal();
+}
+function renumberTpRows(){
+  document.querySelectorAll("#tpEditRows .tp-edit-row").forEach((row, i) => {
+    row.querySelector(".tp-num").textContent = `TP${i + 1}`;
+  });
+}
+function collectTpRows(){
+  return [...document.querySelectorAll("#tpEditRows .tp-edit-row")].map(row => ({
+    targetPercent: parseFloat(row.querySelector(".tp-target").value),
+    sellPercent: parseFloat(row.querySelector(".tp-sell").value),
+  }));
+}
+function updateTpTotal(){
+  const total = collectTpRows().reduce((s, t) => s + (isFinite(t.sellPercent) ? t.sellPercent : 0), 0);
+  const lbl = document.getElementById("tpTotalLabel");
+  lbl.textContent = `${Math.round(total * 100) / 100}% of 100%`;
+  lbl.className = "total " + (Math.abs(total - 100) < 0.001 ? "ok" : "bad");
+}
+document.getElementById("addTpRowBtn").addEventListener("click", () => {
+  if (document.querySelectorAll("#tpEditRows .tp-edit-row").length >= 6) { toast("Maximum 6 TP levels", true); return; }
+  const tps = collectTpRows();
+  const last = tps.length ? tps[tps.length - 1].targetPercent : 50;
+  tps.push({ targetPercent: isFinite(last * 2) ? last * 2 : 100, sellPercent: 0 });
+  renderTpEditRows(tps);
+});
+document.getElementById("strategyModalCancel").addEventListener("click", strategyModalClose);
+strategyModal.addEventListener("click", (e) => { if (e.target === strategyModal) strategyModalClose(); });
+
+document.getElementById("strategyModalSave").addEventListener("click", async () => {
+  const errEl = document.getElementById("strategyModalError");
+  const btn = document.getElementById("strategyModalSave");
+  errEl.textContent = "";
+  btn.disabled = true;
+  try {
+    const body = {
+      name: document.getElementById("stratNameInput").value,
+      stopLoss: parseFloat(document.getElementById("stratSlInput").value),
+      takeProfits: collectTpRows(),
+    };
+    if (editingStrategyKey) {
+      await api("POST", "/api/strategies/update", { key: editingStrategyKey, ...body });
+      toast("Strategy updated");
+    } else {
+      await api("POST", "/api/strategies", body);
+      toast("Strategy created — click its card to make it active");
+    }
+    strategyModalClose();
+    await refreshStrategies();
+    await refreshStatus();
+  } catch (e) { errEl.textContent = e.message; }
+  btn.disabled = false;
+});
 
 // ── Token manager ────────────────────────────────────────
 function renderTokensTable(tokens){
@@ -1444,12 +1842,7 @@ async function refreshAll(){
 
 // ── Boot ─────────────────────────────────────────────────
 async function boot(){
-  try {
-    const { strategies } = await api("GET", "/api/settings");
-    strategiesList = strategies;
-    renderStrategyGrid(strategies);
-  } catch (e) { toast("Could not load strategies: " + e.message, true); }
-
+  await refreshStrategies();
   await refreshAll();
   await refreshProfiles();
 

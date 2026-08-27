@@ -10,22 +10,23 @@ const express = require("express");
 const router  = express.Router();
 const { requireProfile } = require("../middleware/auth");
 const { getSettings, updateSettings, hasWallet } = require("../lib/redis");
-const { STRATEGIES, getStrategy } = require("../config/strategies");
+const strategyStore = require("../lib/strategies");
+const { validateEntryRules } = require("../lib/entryrules");
 
 const ALLOWED_FIELDS = [
   "activeStrategy", "bankrollPercent", "maxOpenTrades",
   "maxSlippagePercent", "minLiquidityUsd", "autoTrade",
   "botRunning", "scanIntervalSeconds", "minBnbReserve",
+  "entryRules", // editable buy conditions — validated below before saving
 ];
 
 router.get("/", requireProfile, async (req, res) => {
   try {
-    const settings = await getSettings(req.profileId);
-    res.json({
-      ok: true,
-      settings,
-      strategies: Object.entries(STRATEGIES).map(([key, s]) => ({ key, ...s })),
-    });
+    const [settings, strategies] = await Promise.all([
+      getSettings(req.profileId),
+      strategyStore.getStrategies(req.profileId),
+    ]);
+    res.json({ ok: true, settings, strategies });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }
@@ -41,7 +42,15 @@ router.post("/update", requireProfile, async (req, res) => {
       return res.status(400).json({ ok: false, error: "No valid fields provided" });
     }
 
-    if (patch.activeStrategy) getStrategy(patch.activeStrategy); // throws if invalid
+    if (patch.activeStrategy) {
+      // Must resolve against THIS profile's strategy list (built-ins + customs)
+      await strategyStore.getStrategyByKey(req.profileId, patch.activeStrategy);
+    }
+
+    if (patch.entryRules !== undefined) {
+      // Strict validation — this object decides when real money moves
+      patch.entryRules = validateEntryRules(patch.entryRules);
+    }
 
     if (patch.bankrollPercent !== undefined) {
       patch.bankrollPercent = Math.max(0.01, Math.min(10, parseFloat(patch.bankrollPercent)));
