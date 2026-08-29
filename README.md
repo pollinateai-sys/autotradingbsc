@@ -30,6 +30,7 @@ There's no shared login. Each person:
 | **Bot Controls** | Start/stop, live vs. simulated trading, bankroll % per trade, max open trades, slippage, min liquidity, scan interval |
 | **Entry Logic** | Editable buy conditions (default: 1h dump ≥40% AND 24h gain ≥100%) — the bot waits for your setup instead of buying instantly |
 | **Strategy Manager** | Stop-loss / take-profit ladders — edit any SL/TP, add your own strategies, delete unused ones, click a card to switch |
+| **Coins Found** | Auto-discovers live BSC coins passing your editable screening filters (liquidity, 24h volume, **minimum age**, market cap, txn count) — enable the ones you want, skip the rest, ask for another 20 |
 | **Token Manager** | Add any BEP20 contract address; the bot reads its symbol/name on-chain |
 | **Open Positions** | Live entry/current price, P&L, TP progress, next target, time held |
 | **Trade History** | Every buy / TP / stop-loss / manual close, with win rate and BscScan links |
@@ -176,6 +177,45 @@ DexScreener's price-change data — no extra API calls needed:
 
 ---
 
+## 🔎 Coins Found — automatic coin discovery
+
+You no longer have to hunt for contract addresses by hand. The **Coins Found** section
+sweeps live BSC pairs from DexScreener and shows only the coins that pass **your**
+screening filters — every one of them editable from the dashboard:
+
+| Filter | What it does |
+|---|---|
+| **Min liquidity (USD)** | Pool-depth floor — keeps out coins you couldn't exit |
+| **Min 24h volume (USD)** | Requires real trading activity |
+| **Min age (days)** | **Coin must be at least this old** (default 30 days) — filters out fresh launches and rug-prone brand-new pairs |
+| **Max age (days)** | Optional upper bound (`0` = no limit) if you only want newer coins |
+| **Min 24h transactions** | Filters out coins with a handful of trades |
+| **Min / max market cap** | Target a size band (`0` = no limit) |
+| **Hide stablecoins & WBNB** | They're not trade candidates |
+| **Sort by** | Liquidity · volume · age · market cap · 24h change |
+
+How it works:
+1. Set your filters → **Save Filters & Find Coins**.
+2. You get a batch of **20 coins** that pass, each showing symbol, name, **age**,
+   liquidity, 24h volume, market cap, 24h transactions, 24h change, DEX, and a
+   BscScan link.
+3. **✓ Enable for trading** verifies the token on-chain (real pool on a supported DEX)
+   and adds it straight to your halal trading list.
+4. **Skip** hides a coin permanently for your profile — so **Show me another 20**
+   is always a fresh set, never the same coins again. **Un-skip all** resets that.
+
+Coins already on your trading list are automatically excluded. The candidate sweep is
+cached for 90 seconds and shared across profiles, so paging through batches costs no
+extra API calls. Skip lists and filters are **per profile** — nobody sees yours.
+
+> ⚠️ Discovery is a *screener*, not an endorsement. It only proves a coin met your
+> numeric thresholds. **Always verify a coin is halal yourself before enabling it.**
+
+API: `GET /api/discover?offset=0` · `POST /api/discover/filters` ·
+`POST /api/discover/enable` · `POST /api/discover/dismiss` · `POST /api/discover/reset`
+
+---
+
 ## 🌐 Hosting options
 
 ### Option A — Any VPS / Railway / Render / Termux (recommended)
@@ -230,6 +270,7 @@ autotradingbsc/
 │   │   ├── redis.js          ← Profile registry + all per-profile state
 │   │   ├── strategies.js     ← Per-profile editable SL/TP ladders (CRUD + validation)
 │   │   ├── entryrules.js     ← Editable "when to buy" conditions (pure logic)
+│   │   ├── discovery.js      ← Coin discovery sweep + editable screening filters
 │   │   ├── wallet.js         ← Connect/disconnect, decrypt-on-demand signer
 │   │   ├── pancakeswap.js    ← Spot swap execution (takes an explicit signer)
 │   │   ├── market.js         ← DexScreener prices + on-chain token metadata
@@ -240,6 +281,7 @@ autotradingbsc/
 │       ├── auth.js            ← Register/login, session tokens
 │       ├── wallet.js          ← Connect/disconnect/status
 │       ├── strategies.js      ← Strategy CRUD (add/edit/delete ladders)
+│       ├── discover.js        ← Coins Found: batches, filters, enable/skip
 │       └── status.js  trade.js  positions.js  tokens.js  settings.js  scan.js
 ├── public/
 │   └── index.html             ← The dashboard (vanilla HTML/CSS/JS, no build step)
@@ -247,6 +289,7 @@ autotradingbsc/
 │   ├── test_crypto.js         ← Encryption round-trip, tamper detection, hashing
 │   ├── test_direct.js         ← Strategy engine logic (mocked), profile isolation
 │   ├── test_http.js           ← Full HTTP API (mocked), two-profile cross-check
+│   ├── test_rules.js          ← Editable strategies, entry rules, coin discovery
 │   ├── setup-mocks.js         ← Swaps real chain/redis/market libs for fakes in tests
 │   └── mocks/                  ← wallet.js, pancakeswap.js, redis.js, market.js
 ├── server.js                   ← Entry point for persistent hosting

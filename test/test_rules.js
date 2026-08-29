@@ -204,12 +204,83 @@ async function testScannerGating() {
   mocks.market._setChanges(null, null); // restore defaults for other tests
 }
 
+// ── 6. Coin discovery — filters, age gate, pagination ──────
+function testDiscoveryFilters() {
+  console.log("\n── Discovery filter validation ──");
+  const { validateDiscoveryFilters, applyFilters, sortCandidates, DEFAULT_DISCOVERY_FILTERS } = require("../api/lib/discovery");
+
+  const ok = validateDiscoveryFilters({ minLiquidityUsd: 1000, minAgeDays: 7, sortBy: "volume" });
+  assert(ok.minLiquidityUsd === 1000 && ok.sortBy === "volume", "Valid filters normalize correctly");
+  assert(ok.minVolume24hUsd === DEFAULT_DISCOVERY_FILTERS.minVolume24hUsd, "Unspecified filters fall back to defaults");
+
+  const bad = [
+    [{ sortBy: "vibes" }, "unknown sort key"],
+    [{ minLiquidityUsd: -5 }, "negative liquidity"],
+    [{ minAgeDays: 30, maxAgeDays: 10 }, "max age below min age"],
+    [{ minMarketCapUsd: 1e6, maxMarketCapUsd: 1000 }, "max mcap below min mcap"],
+  ];
+  for (const [input, label] of bad) {
+    let threw = false;
+    try { validateDiscoveryFilters(input); } catch { threw = true; }
+    assert(threw, `Rejected: ${label}`);
+  }
+
+  console.log("\n── Discovery screening (age / liquidity / volume) ──");
+  const pool = mocks.discovery._setPool || null; // pool lives in the mock
+  const { getCandidatePool } = mocks.discovery;
+  return getCandidatePool().then(({ data }) => {
+    const strict = applyFilters(data, { ...DEFAULT_DISCOVERY_FILTERS, minAgeDays: 30, minLiquidityUsd: 50000, minVolume24hUsd: 25000, minTxns24h: 100 });
+    const syms = strict.map(c => c.symbol);
+    assert(!syms.includes("FRESH"), "2-day-old coin excluded by 30-day minimum age");
+    assert(!syms.includes("THIN"), "Thin-liquidity coin excluded");
+    assert(!syms.includes("QUIET"), "Coin with almost no 24h volume/txns excluded");
+    assert(!syms.includes("USDT"), "Stablecoin excluded by default");
+    assert(!syms.includes("NOAGE"), "Coin with unknown age excluded when a minimum age is required");
+    assert(syms.includes("AGED") && syms.includes("SOLID") && syms.includes("MIDAGE"), "Old, liquid, active coins pass");
+
+    const young = applyFilters(data, { ...DEFAULT_DISCOVERY_FILTERS, minAgeDays: 0, minLiquidityUsd: 50000, minVolume24hUsd: 25000, minTxns24h: 100 });
+    assert(young.some(c => c.symbol === "FRESH"), "Dropping the age floor lets brand-new coins through (editable)");
+    assert(young.some(c => c.symbol === "NOAGE"), "Unknown-age coin allowed when no minimum age is set");
+
+    const capped = applyFilters(data, { ...DEFAULT_DISCOVERY_FILTERS, minAgeDays: 0, minLiquidityUsd: 0, minVolume24hUsd: 0, minTxns24h: 0, maxMarketCapUsd: 50000000 });
+    assert(!capped.some(c => c.symbol === "HUGE"), "Max market cap filter excludes mega caps");
+
+    const maxAge = applyFilters(data, { ...DEFAULT_DISCOVERY_FILTERS, minAgeDays: 0, minLiquidityUsd: 0, minVolume24hUsd: 0, minTxns24h: 0, maxAgeDays: 100 });
+    assert(!maxAge.some(c => c.symbol === "AGED"), "Max age filter excludes very old coins");
+
+    const byVol = sortCandidates(strict, "volume");
+    assert(byVol[0].volume24h >= byVol[byVol.length - 1].volume24h, "Sort by volume orders descending");
+    const byAge = sortCandidates(strict, "age");
+    assert(byAge[0].symbol === "AGED", "Sort by age puts the oldest coin first");
+  });
+}
+
+async function testDiscoveryPagination() {
+  console.log("\n── Discovery batching (\"another 20\") ──");
+  const { discoverCoins, BATCH_SIZE } = mocks.discovery;
+  assert(BATCH_SIZE === 20, "Batch size is 20 coins");
+
+  const loose = { minLiquidityUsd: 0, minVolume24hUsd: 0, minAgeDays: 0, maxAgeDays: 0, minTxns24h: 0, minMarketCapUsd: 0, maxMarketCapUsd: 0, excludeStables: false, sortBy: "liquidity" };
+  const first = await discoverCoins({ filters: loose, offset: 0 });
+  assert(first.coins.length > 0 && first.matched === first.coins.length, "First batch returns matching coins");
+
+  const excluded = first.coins[0].contract;
+  const after = await discoverCoins({ filters: loose, offset: 0, exclude: [excluded] });
+  assert(!after.coins.some(c => c.contract === excluded), "Skipped/added coins are excluded from later batches");
+  assert(after.matched === first.matched - 1, "Excluding a coin reduces the match count by one");
+
+  const paged = await discoverCoins({ filters: loose, offset: 2 });
+  assert(paged.offset === 2 && paged.coins[0].contract !== first.coins[0].contract, "Offset paginates into the next slice");
+}
+
 async function main() {
   testStrategyValidation();
   await testStrategyCrud();
   testEntryRules();
   await testCustomStrategyTrade();
   await testScannerGating();
+  await testDiscoveryFilters();
+  await testDiscoveryPagination();
 
   console.log("\n" + "─".repeat(50));
   if (failures === 0) { console.log("✅ ALL STRATEGY/RULES TESTS PASSED"); process.exit(0); }

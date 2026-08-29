@@ -27,10 +27,12 @@ injectMock("../api/lib/wallet.js",      "./mocks/wallet.js");
 injectMock("../api/lib/pancakeswap.js", "./mocks/pancakeswap.js");
 injectMock("../api/lib/dex.js",         "./mocks/pancakeswap.js"); // same mock — dex.js is the new pancakeswap.js
 injectMock("../api/lib/market.js",      "./mocks/market.js");
+injectMock("../api/lib/discovery.js",   "./mocks/discovery.js"); // no live DexScreener sweeps in tests
 
 module.exports = {
-  wallet: require("./mocks/wallet.js"),
-  swap:   require("./mocks/pancakeswap.js"),
-  market: require("./mocks/market.js"),
-  redis:  require("./mocks/redis.js"),
+  wallet:    require("./mocks/wallet.js"),
+  swap:      require("./mocks/pancakeswap.js"),
+  market:    require("./mocks/market.js"),
+  redis:     require("./mocks/redis.js"),
+  discovery: require("./mocks/discovery.js"),
 };

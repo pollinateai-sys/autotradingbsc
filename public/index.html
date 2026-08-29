@@ -549,6 +549,44 @@
   .modal-actions{ display:flex; gap:10px; margin-top:18px; }
   .modal-actions .btn{ flex:1; justify-content:center; }
   .modal-error{ font-size:12px; color:var(--red); margin-top:12px; min-height:1em; line-height:1.5; }
+
+  /* ── Coins Found (discovery) ─────────────────────────────── */
+  .filters-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:16px; }
+  @media (max-width:900px){ .filters-grid{ grid-template-columns:1fr 1fr; } }
+  @media (max-width:520px){ .filters-grid{ grid-template-columns:1fr; } }
+  .filters-grid .field label .hint{ font-size:10px; color:var(--text-faint); }
+  .discovery-bar{
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+    flex-wrap:wrap; margin-bottom:14px; padding-bottom:14px; border-bottom:1px solid var(--border-soft);
+  }
+  .discovery-meta{ font-size:12px; color:var(--text-dim); font-family:var(--font-mono); line-height:1.7; }
+  .discovery-meta b{ color:var(--gold); }
+  .coin-grid{ display:grid; grid-template-columns:repeat(2,1fr); gap:12px; }
+  @media (max-width:860px){ .coin-grid{ grid-template-columns:1fr; } }
+  .coin-card{
+    background:var(--surface-2); border:1px solid var(--border-soft); border-radius:var(--radius);
+    padding:14px; display:flex; flex-direction:column; gap:10px;
+    transition:border-color 0.15s, opacity 0.2s;
+  }
+  .coin-card:hover{ border-color:var(--border); }
+  .coin-card.gone{ opacity:0.35; pointer-events:none; }
+  .coin-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
+  .coin-id{ display:flex; align-items:center; gap:9px; min-width:0; }
+  .coin-id .sym-badge{ width:32px; height:32px; font-size:11px; border-radius:8px; }
+  .coin-id .names{ min-width:0; }
+  .coin-id .sym{ font-weight:700; font-size:14px; display:flex; align-items:center; gap:6px; }
+  .coin-id .nm{ font-size:11px; color:var(--text-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:170px; }
+  .age-chip{
+    font-size:9.5px; font-weight:700; letter-spacing:0.3px; padding:2px 7px; border-radius:999px;
+    background:var(--surface-3); color:var(--text-dim); white-space:nowrap;
+  }
+  .age-chip.old{ background:rgba(34,168,112,0.14); color:var(--jade); }
+  .coin-stats{ display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
+  .coin-stat .k{ font-size:9.5px; color:var(--text-faint); text-transform:uppercase; letter-spacing:0.4px; }
+  .coin-stat .v{ font-family:var(--font-mono); font-size:12px; font-weight:600; margin-top:2px; }
+  .coin-actions{ display:flex; gap:8px; }
+  .coin-actions .btn{ flex:1; justify-content:center; }
+  .discovery-foot{ display:flex; gap:10px; align-items:center; margin-top:16px; flex-wrap:wrap; }
 </style>
 
 <!-- ── Profile gate (shown until a valid personal API key is stored) ── -->
@@ -754,7 +792,89 @@
   </div>
 
   <!-- ══════════════════════════════════════════════════════════
-       SECTION 3 — TOKEN MANAGER
+       SECTION 4 — COINS FOUND (discovery)
+  ══════════════════════════════════════════════════════════ -->
+  <div class="divider"><span class="star8"></span></div>
+  <div class="section-head">
+    <div>
+      <div class="section-eyebrow"><span class="star8"></span><span>Discovery</span></div>
+      <div class="section-title">Coins Found</div>
+      <div class="section-sub">The bot sweeps live BSC pairs and shows only coins that pass your screening filters below — no more hunting for contract addresses. Enable the ones you want to trade, skip the rest, and ask for another 20 any time. <b>Always verify a coin is halal yourself before enabling it.</b></div>
+    </div>
+  </div>
+  <div class="card card-pad">
+    <div class="filters-grid">
+      <div class="field">
+        <label>Min liquidity (USD)</label>
+        <input type="number" id="dfMinLiq" min="0" step="1000" value="50000">
+      </div>
+      <div class="field">
+        <label>Min 24h volume (USD)</label>
+        <input type="number" id="dfMinVol" min="0" step="1000" value="25000">
+      </div>
+      <div class="field">
+        <label>Min age <span class="hint">days old</span></label>
+        <input type="number" id="dfMinAge" min="0" step="1" value="30">
+      </div>
+      <div class="field">
+        <label>Max age <span class="hint">0 = no limit</span></label>
+        <input type="number" id="dfMaxAge" min="0" step="1" value="0">
+      </div>
+      <div class="field">
+        <label>Min 24h transactions</label>
+        <input type="number" id="dfMinTxns" min="0" step="10" value="100">
+      </div>
+      <div class="field">
+        <label>Min market cap <span class="hint">0 = none</span></label>
+        <input type="number" id="dfMinMcap" min="0" step="10000" value="0">
+      </div>
+      <div class="field">
+        <label>Max market cap <span class="hint">0 = none</span></label>
+        <input type="number" id="dfMaxMcap" min="0" step="10000" value="0">
+      </div>
+      <div class="field">
+        <label>Sort results by</label>
+        <select id="dfSortBy">
+          <option value="liquidity">Deepest liquidity</option>
+          <option value="volume">Highest 24h volume</option>
+          <option value="age">Oldest first</option>
+          <option value="marketCap">Biggest market cap</option>
+          <option value="change24h">Best 24h change</option>
+        </select>
+      </div>
+    </div>
+    <div class="toggle-row" style="margin-bottom:16px;">
+      <div>
+        <div style="font-weight:600;font-size:13px;">Hide stablecoins &amp; WBNB</div>
+        <div class="desc">Filters out USDT/BUSD/USDC and wrapped BNB — they're not trade candidates</div>
+      </div>
+      <label class="switch"><input type="checkbox" id="dfExcludeStables" checked><span class="track"></span><span class="thumb"></span></label>
+    </div>
+    <div class="controls-actions" style="margin-top:0;margin-bottom:18px;">
+      <button class="btn btn-primary" id="saveFiltersBtn">Save Filters &amp; Find Coins</button>
+      <button class="btn btn-ghost btn-sm" id="resetDismissedBtn">Un-skip all</button>
+      <span class="scan-result" id="filtersMsg"></span>
+    </div>
+
+    <div class="discovery-bar">
+      <div class="discovery-meta" id="discoveryMeta">Press “Find Coins” to sweep the market.</div>
+      <button class="btn btn-gold" id="findCoinsBtn">🔍 Find Coins</button>
+    </div>
+
+    <div class="coin-grid" id="coinGrid"></div>
+    <div class="empty-state" id="coinsEmpty">
+      <span class="star8"></span>
+      <div class="msg">No coins loaded yet. Set your filters above and hit <b>Find Coins</b>.</div>
+    </div>
+
+    <div class="discovery-foot" id="discoveryFoot" style="display:none;">
+      <button class="btn btn-primary" id="anotherBatchBtn">Show me another 20 →</button>
+      <span class="scan-result" id="batchMsg"></span>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       SECTION 5 — TOKEN MANAGER
   ══════════════════════════════════════════════════════════ -->
   <div class="divider"><span class="star8"></span></div>
   <div class="section-head">
@@ -1205,6 +1325,7 @@ function populateControls(settings){
   document.getElementById("scanIntervalInput").value = settings.scanIntervalSeconds;
   document.getElementById("minBnbReserveInput").value = settings.minBnbReserve;
   renderEntryRulesEditor(settings.entryRules);
+  populateFilterInputs(settings.discoveryFilters);
 }
 
 document.getElementById("autoTradeToggle").addEventListener("change", (e) => {
@@ -1653,6 +1774,179 @@ confirmAddBtn.addEventListener("click", async () => {
     previewedContract = null;
     await refreshTokens();
   } catch (e) { toast(e.message, true); confirmAddBtn.disabled = false; }
+});
+
+// ── Coins Found (discovery) ──────────────────────────────
+let discoveryOffset  = 0;
+let discoveryLoading = false;
+
+function fmtAge(days){
+  if (days === null || days === undefined || isNaN(days)) return "age ?";
+  if (days < 1)   return Math.max(1, Math.round(days * 24)) + "h old";
+  if (days < 60)  return Math.round(days) + "d old";
+  if (days < 730) return Math.round(days / 30) + "mo old";
+  return (days / 365).toFixed(1) + "y old";
+}
+function readFilterInputs(){
+  return {
+    minLiquidityUsd: parseFloat(document.getElementById("dfMinLiq").value) || 0,
+    minVolume24hUsd: parseFloat(document.getElementById("dfMinVol").value) || 0,
+    minAgeDays:      parseFloat(document.getElementById("dfMinAge").value) || 0,
+    maxAgeDays:      parseFloat(document.getElementById("dfMaxAge").value) || 0,
+    minTxns24h:      parseFloat(document.getElementById("dfMinTxns").value) || 0,
+    minMarketCapUsd: parseFloat(document.getElementById("dfMinMcap").value) || 0,
+    maxMarketCapUsd: parseFloat(document.getElementById("dfMaxMcap").value) || 0,
+    excludeStables:  document.getElementById("dfExcludeStables").checked,
+    sortBy:          document.getElementById("dfSortBy").value,
+  };
+}
+function populateFilterInputs(f){
+  if (!f) return;
+  document.getElementById("dfMinLiq").value   = f.minLiquidityUsd;
+  document.getElementById("dfMinVol").value   = f.minVolume24hUsd;
+  document.getElementById("dfMinAge").value   = f.minAgeDays;
+  document.getElementById("dfMaxAge").value   = f.maxAgeDays;
+  document.getElementById("dfMinTxns").value  = f.minTxns24h;
+  document.getElementById("dfMinMcap").value  = f.minMarketCapUsd;
+  document.getElementById("dfMaxMcap").value  = f.maxMarketCapUsd;
+  document.getElementById("dfExcludeStables").checked = !!f.excludeStables;
+  document.getElementById("dfSortBy").value   = f.sortBy;
+}
+
+function coinCardHtml(c){
+  const ageOk = c.ageDays !== null && c.ageDays >= 30;
+  return `
+  <div class="coin-card" data-contract="${esc(c.contract)}">
+    <div class="coin-head">
+      <div class="coin-id">
+        <div class="sym-badge">${esc(String(c.symbol).slice(0,3).toUpperCase())}</div>
+        <div class="names">
+          <div class="sym">${esc(c.symbol)} <span class="age-chip ${ageOk ? "old" : ""}">${esc(fmtAge(c.ageDays))}</span></div>
+          <div class="nm">${esc(c.name)}</div>
+        </div>
+      </div>
+      <span class="chg ${pctClass(c.change24h)}" title="24h change">${fmtPct(c.change24h)}</span>
+    </div>
+    <div class="coin-stats">
+      <div class="coin-stat"><div class="k">Liquidity</div><div class="v">${fmtUsd(c.liquidityUsd)}</div></div>
+      <div class="coin-stat"><div class="k">24h Vol</div><div class="v">${fmtUsd(c.volume24h)}</div></div>
+      <div class="coin-stat"><div class="k">Mkt Cap</div><div class="v">${fmtUsd(c.marketCap)}</div></div>
+      <div class="coin-stat"><div class="k">24h Txns</div><div class="v">${c.txns24h != null ? c.txns24h.toLocaleString() : "—"}</div></div>
+    </div>
+    <div style="font-size:11px;">
+      <a class="contract-link" href="${bscAddr(c.contract)}" target="_blank" rel="noopener">${shortAddr(c.contract)} ↗</a>
+      <span style="color:var(--text-faint);"> · ${esc(c.dexId || "dex")} · pairs with ${esc(c.quoteSymbol || "?")}</span>
+    </div>
+    <div class="coin-actions">
+      <button class="btn btn-primary btn-sm enableCoinBtn" data-contract="${esc(c.contract)}" data-symbol="${esc(c.symbol)}">✓ Enable for trading</button>
+      <button class="btn btn-ghost btn-sm skipCoinBtn" data-contract="${esc(c.contract)}" data-symbol="${esc(c.symbol)}">Skip</button>
+    </div>
+  </div>`;
+}
+
+function renderCoins(data, append){
+  const grid  = document.getElementById("coinGrid");
+  const empty = document.getElementById("coinsEmpty");
+  const foot  = document.getElementById("discoveryFoot");
+
+  const html = data.coins.map(coinCardHtml).join("");
+  if (append) grid.insertAdjacentHTML("beforeend", html);
+  else grid.innerHTML = html;
+
+  const anyShown = grid.querySelectorAll(".coin-card").length > 0;
+  empty.style.display = anyShown ? "none" : "block";
+  if (!anyShown) {
+    empty.innerHTML = `<span class="star8"></span><div class="msg">No coins match your filters right now. Try lowering min liquidity / volume / age, then hit <b>Find Coins</b> again.</div>`;
+  }
+  foot.style.display = anyShown ? "flex" : "none";
+  document.getElementById("anotherBatchBtn").disabled = !data.hasMore;
+  document.getElementById("batchMsg").textContent = data.hasMore
+    ? `${data.matched - data.nextOffset} more match your filters`
+    : "That's every coin matching your filters right now.";
+
+  document.getElementById("discoveryMeta").innerHTML =
+    `Swept <b>${data.scanned}</b> live BSC pairs · <b>${data.matched}</b> passed your filters` +
+    (data.dismissedCount ? ` · ${data.dismissedCount} skipped` : "");
+
+  wireCoinButtons();
+}
+
+function wireCoinButtons(){
+  document.querySelectorAll(".enableCoinBtn").forEach(btn => {
+    if (btn.dataset.wired) return;
+    btn.dataset.wired = "1";
+    btn.addEventListener("click", async () => {
+      const contract = btn.dataset.contract, symbol = btn.dataset.symbol;
+      btn.disabled = true; btn.textContent = "Enabling…";
+      try {
+        await api("POST", "/api/discover/enable", { contract });
+        toast(`${symbol} enabled — it's now on your trading list`);
+        btn.closest(".coin-card").classList.add("gone");
+        await refreshTokens();
+      } catch (e) {
+        toast(e.message, true);
+        btn.disabled = false; btn.textContent = "✓ Enable for trading";
+      }
+    });
+  });
+  document.querySelectorAll(".skipCoinBtn").forEach(btn => {
+    if (btn.dataset.wired) return;
+    btn.dataset.wired = "1";
+    btn.addEventListener("click", async () => {
+      const contract = btn.dataset.contract;
+      btn.disabled = true;
+      try {
+        await api("POST", "/api/discover/dismiss", { contract });
+        btn.closest(".coin-card").classList.add("gone");
+      } catch (e) { toast(e.message, true); btn.disabled = false; }
+    });
+  });
+}
+
+async function loadCoins({ append = false, force = false } = {}){
+  if (discoveryLoading) return;
+  discoveryLoading = true;
+  const findBtn = document.getElementById("findCoinsBtn");
+  const moreBtn = document.getElementById("anotherBatchBtn");
+  const activeBtn = append ? moreBtn : findBtn;
+  const originalText = activeBtn.textContent;
+  activeBtn.disabled = true;
+  activeBtn.textContent = append ? "Loading…" : "Sweeping…";
+  try {
+    if (!append) discoveryOffset = 0;
+    const qs = `?offset=${discoveryOffset}${force ? "&force=1" : ""}`;
+    const data = await api("GET", "/api/discover" + qs);
+    discoveryOffset = data.nextOffset;
+    renderCoins(data, append);
+    if (!append && data.filters) populateFilterInputs(data.filters);
+  } catch (e) { toast(e.message, true); }
+  activeBtn.disabled = false;
+  activeBtn.textContent = originalText;
+  discoveryLoading = false;
+}
+
+document.getElementById("findCoinsBtn").addEventListener("click", () => loadCoins({ force: true }));
+document.getElementById("anotherBatchBtn").addEventListener("click", () => loadCoins({ append: true }));
+
+document.getElementById("saveFiltersBtn").addEventListener("click", async () => {
+  const btn = document.getElementById("saveFiltersBtn");
+  const msg = document.getElementById("filtersMsg");
+  btn.disabled = true; msg.textContent = "";
+  try {
+    const { filters } = await api("POST", "/api/discover/filters", readFilterInputs());
+    populateFilterInputs(filters);
+    toast("Screening filters saved");
+    btn.disabled = false;
+    await loadCoins({ force: false });
+  } catch (e) { msg.textContent = e.message; toast(e.message, true); btn.disabled = false; }
+});
+
+document.getElementById("resetDismissedBtn").addEventListener("click", async () => {
+  try {
+    await api("POST", "/api/discover/reset");
+    toast("Skipped coins restored");
+    await loadCoins();
+  } catch (e) { toast(e.message, true); }
 });
 
 // ── Positions ────────────────────────────────────────────

@@ -261,6 +261,55 @@ async function main() {
     r = await req("POST", "/api/scan/now", {}, alice.token);
     assert(r.status === 200 && r.json.results.opened.length > 0, "With rules off, scan buys immediately (old behavior)");
 
+    console.log("\n── Coin discovery over HTTP ──");
+    r = await req("GET", "/api/discover", null, alice.token);
+    assert(r.status === 200 && Array.isArray(r.json.coins), "GET /api/discover returns a coin batch");
+    assert(r.json.filters && r.json.filters.minAgeDays === 30, "Default screening filters include a 30-day min age");
+    assert(r.json.coins.every(c => c.ageDays === null || c.ageDays >= 30), "Every returned coin meets the min age");
+    assert(r.json.coins.every(c => c.liquidityUsd >= r.json.filters.minLiquidityUsd), "Every returned coin meets min liquidity");
+
+    r = await req("GET", "/api/discover", null, null);
+    assert(r.status === 401, "Discovery requires auth");
+
+    r = await req("POST", "/api/discover/filters", { minLiquidityUsd: 1000, minVolume24hUsd: 0, minAgeDays: 0, maxAgeDays: 0, minTxns24h: 0, minMarketCapUsd: 0, maxMarketCapUsd: 0, excludeStables: false, sortBy: "volume" }, alice.token);
+    assert(r.status === 200 && r.json.filters.sortBy === "volume", "Saving custom screening filters → 200");
+
+    r = await req("POST", "/api/discover/filters", { sortBy: "vibes" }, alice.token);
+    assert(r.status === 400, "Invalid sort key rejected → 400");
+
+    r = await req("GET", "/api/discover", null, alice.token);
+    const loosened = r.json.coins.length;
+    assert(loosened > 0, "Loosened filters return more coins");
+    const firstCoin = r.json.coins[0];
+
+    r = await req("POST", "/api/discover/dismiss", { contract: firstCoin.contract }, alice.token);
+    assert(r.status === 200, "Dismiss ('Skip') a coin → 200");
+
+    r = await req("GET", "/api/discover", null, alice.token);
+    assert(!r.json.coins.some(c => c.contract === firstCoin.contract), "Skipped coin no longer appears in the next batch");
+    assert(r.json.dismissedCount === 1, "Dismissed count is reported back");
+
+    r = await req("POST", "/api/discover/reset", {}, alice.token);
+    assert(r.status === 200, "Un-skip all → 200");
+    r = await req("GET", "/api/discover", null, alice.token);
+    assert(r.json.coins.some(c => c.contract === firstCoin.contract), "Un-skipped coin returns to the results");
+
+    const enableTarget = r.json.coins[0];
+    r = await req("POST", "/api/discover/enable", { contract: enableTarget.contract }, alice.token);
+    assert(r.status === 200 && r.json.token.enabled === true, "Enabling a discovered coin adds it to the trading list");
+    assert(r.json.token.addedVia === "discovery", "Token is tagged as added via discovery");
+
+    r = await req("GET", "/api/discover", null, alice.token);
+    assert(!r.json.coins.some(c => c.contract.toLowerCase() === enableTarget.contract.toLowerCase()),
+      "Enabled coin disappears from discovery (already on the trading list)");
+
+    r = await req("POST", "/api/discover/enable", { contract: "not-an-address" }, alice.token);
+    assert(r.status === 400, "Enabling a bogus address → 400");
+
+    console.log("\n── Discovery is per-profile ──");
+    r = await req("GET", "/api/discover", null, bob.token);
+    assert(r.json.dismissedCount === 0, "Bob has his own (empty) skip list — Alice's dismissals don't leak");
+
     console.log("\n── Static dashboard ──");
     const staticRes = await fetch(BASE + "/");
     assert(staticRes.status === 200, "GET / serves the dashboard");

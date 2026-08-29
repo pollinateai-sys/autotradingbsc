@@ -17,6 +17,7 @@ const { Redis } = require("@upstash/redis");
 const { hashPassword, verifyPassword, hashToken, generateSessionToken, newProfileId } = require("./crypto");
 const DEFAULT_TOKENS = require("../config/tokens");
 const { DEFAULT_ENTRY_RULES } = require("./entryrules");
+const { DEFAULT_DISCOVERY_FILTERS } = require("./discovery");
 
 let redis;
 
@@ -194,6 +195,12 @@ async function getSettings(profileId) {
   if (!merged.entryRules || typeof merged.entryRules !== "object" || !Array.isArray(merged.entryRules.conditions)) {
     merged.entryRules = JSON.parse(JSON.stringify(DEFAULT_ENTRY_RULES));
   }
+  // Coin-discovery screening filters — same deep-clone treatment
+  if (!merged.discoveryFilters || typeof merged.discoveryFilters !== "object") {
+    merged.discoveryFilters = JSON.parse(JSON.stringify(DEFAULT_DISCOVERY_FILTERS));
+  } else {
+    merged.discoveryFilters = { ...DEFAULT_DISCOVERY_FILTERS, ...merged.discoveryFilters };
+  }
   return merged;
 }
 async function updateSettings(profileId, patch) {
@@ -250,6 +257,15 @@ async function toggleToken(profileId, symbol, enabled) {
 async function getStrategies(profileId)          { return getJson(`profile:${profileId}:strategies`, null); }
 async function saveStrategies(profileId, list)    { return setJson(`profile:${profileId}:strategies`, list); }
 
+// ══════════════════════════════════════════════════════════
+//  DISMISSED COINS (per profile)
+//  Contracts the person rejected in "Coins Found" — hidden from
+//  future batches so "give me another 20" is always fresh.
+// ══════════════════════════════════════════════════════════
+
+async function getDismissedCoins(profileId)       { return getJson(`profile:${profileId}:dismissed`, []); }
+async function saveDismissedCoins(profileId, list) { return setJson(`profile:${profileId}:dismissed`, list); }
+
 module.exports = {
   getRedis,
   // profiles (username/password + permanent session tokens)
@@ -268,6 +284,8 @@ module.exports = {
   getTokens, saveTokens, addToken, removeToken, toggleToken,
   // strategies
   getStrategies, saveStrategies,
+  // coin discovery
+  getDismissedCoins, saveDismissedCoins,
 };
 
 // ══════════════════════════════════════════════════════════
@@ -302,6 +320,7 @@ async function deleteProfile(profileId) {
     `profile:${profileId}:stats`,
     `profile:${profileId}:wallet`,
     `profile:${profileId}:strategies`,
+    `profile:${profileId}:dismissed`,
   ];
   for (const key of keys) await r.del(key);
 

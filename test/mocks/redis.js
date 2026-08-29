@@ -5,6 +5,7 @@
 // ============================================================
 const DEFAULT_TOKENS = require("../../api/config/tokens");
 const { DEFAULT_ENTRY_RULES } = require("../../api/lib/entryrules");
+const { DEFAULT_DISCOVERY_FILTERS } = require("../../api/lib/discovery");
 const {
   hashPassword, verifyPassword, hashToken, generateSessionToken, newProfileId,
 } = require("../../api/lib/crypto"); // pure functions (bcrypt/sha256), safe to use for real in tests
@@ -128,6 +129,11 @@ async function getSettings(profileId) {
   if (!merged.entryRules || typeof merged.entryRules !== "object" || !Array.isArray(merged.entryRules.conditions)) {
     merged.entryRules = JSON.parse(JSON.stringify(DEFAULT_ENTRY_RULES));
   }
+  if (!merged.discoveryFilters || typeof merged.discoveryFilters !== "object") {
+    merged.discoveryFilters = JSON.parse(JSON.stringify(DEFAULT_DISCOVERY_FILTERS));
+  } else {
+    merged.discoveryFilters = { ...DEFAULT_DISCOVERY_FILTERS, ...merged.discoveryFilters };
+  }
   return merged;
 }
 async function updateSettings(profileId, patch) {
@@ -140,6 +146,10 @@ async function updateSettings(profileId, patch) {
 // ── Strategies (raw storage — seeding/CRUD lives in api/lib/strategies.js) ──
 async function getStrategies(profileId)          { return getJson(`profile:${profileId}:strategies`, null); }
 async function saveStrategies(profileId, list)    { return setJson(`profile:${profileId}:strategies`, list); }
+
+// ── Dismissed discovery coins ──────────────────────────────────
+async function getDismissedCoins(profileId)       { return getJson(`profile:${profileId}:dismissed`, []); }
+async function saveDismissedCoins(profileId, list) { return setJson(`profile:${profileId}:dismissed`, list); }
 
 // ── Tokens ────────────────────────────────────────────────────
 async function getTokens(profileId) {
@@ -179,5 +189,6 @@ module.exports = {
   appendTradeLog, getTradeLog, getStats, updateStats,
   getSettings, updateSettings, getTokens, saveTokens, addToken, removeToken, toggleToken,
   getStrategies, saveStrategies,
+  getDismissedCoins, saveDismissedCoins,
   _debugStore: store, // exposed for test assertions only
 };
