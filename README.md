@@ -32,7 +32,7 @@ There's no shared login. Each person:
 | **Strategy Manager** | Stop-loss / take-profit ladders — edit any SL/TP, add your own strategies, delete unused ones, click a card to switch |
 | **Coins Found** | Auto-discovers live BSC coins passing your editable screening filters (liquidity, 24h volume, **minimum age**, market cap, txn count) — enable the ones you want, skip the rest, ask for another 20 |
 | **Token Manager** | Add any BEP20 contract address; the bot reads its symbol/name on-chain |
-| **Open Positions** | Live entry/current price, P&L, TP progress, next target, time held |
+| **Open Positions** | **Every-block live monitoring** over BSC WebSocket, executable current price, P&L, TP progress, next target, time held |
 | **Trade History** | Every buy / TP / stop-loss / manual close, with win rate and BscScan links |
 
 ---
@@ -58,7 +58,8 @@ Beyond that:
 - **Exact-amount approvals only** — never unlimited token allowance.
 - **Slippage capped**, **liquidity floor** enforced per-profile.
 - **Position monitoring never stops** for a profile with open positions, even if that
-  profile's bot is toggled "off" — off only stops *new* entries.
+  profile's bot is toggled "off" — every new BSC block triggers SL/TP checks, and an
+  independent HTTP watchdog protects positions if the WebSocket feed drops.
 - **Per-profile isolation** — one person's tokens, settings, positions, and wallet are
   never visible to another profile, enforced at every API route (covered by the test
   suite, including an explicit cross-contamination check).
@@ -216,16 +217,58 @@ API: `GET /api/discover?offset=0` · `POST /api/discover/filters` ·
 
 ---
 
-## 🌐 Hosting options
+## ⚡ Live position monitoring — every BSC block
 
-### Option A — Any VPS / Railway / Render / Termux (recommended)
+Entry discovery remains timer-based because 1h/24h signals do not need sub-second
+polling. The moment a position opens, exit protection becomes event-driven:
+
+1. `server.js` opens a BSC WebSocket and subscribes to `newHeads` / every new block.
+2. Each block immediately checks every open position, whether the profile's bot toggle
+   is on or off.
+3. The trigger price is an **exact-size executable sell quote** for the remaining position
+   across all supported DEXes — including pool price impact — not a stale chart price.
+4. If one pump crosses several TP targets, they execute together in **one transaction**.
+5. A per-position lock blocks duplicate exits from overlapping block/watchdog/UI checks;
+   a per-profile wallet queue also prevents nonce races between two token exits.
+
+Reliability safeguards:
+- Chain ID must be **56** or the socket is rejected.
+- A feed with no block for `LIVE_STALE_SECONDS` is treated as dead, destroyed, and
+  reconnected with exponential backoff.
+- The dashboard shows **LIVE · block number**, **CONNECTING**, **RECONNECTING**, or
+  **FALLBACK**.
+- An independent HTTP watchdog checks all positions every
+  `POSITION_WATCHDOG_INTERVAL_SECONDS` (default 15s), even while WSS is healthy.
+- Dashboard snapshots refresh every 3s, but trading decisions happen server-side on
+  blocks — closing the browser does not stop protection.
+
+### Local test on your device
+
 ```bash
 npm install
-npm start          # runs server.js — Express + one background tick loop
+cp .env.example .env       # fill encryption + Upstash values
+npm start
 ```
-Every `POSITION_CHECK_INTERVAL_SECONDS` (default 60s), the loop walks **every profile**:
-checks their open positions for SL/TP (always), and runs an entry scan for them if their
-bot is on, their wallet is connected, and their own `scanIntervalMinutes` has elapsed.
+
+If `BSC_WSS_URL` is blank, local `npm start` uses the verified public testing endpoint
+`wss://bsc-rpc.publicnode.com`. For real-money Node.js hosting, set your own managed
+BSC WSS URL from Chainstack, QuickNode, Ankr, NodeReal, or another provider; public
+endpoints can rate-limit or disconnect.
+
+> Live monitoring requires persistent Node.js hosting. Vercel/serverless cannot retain
+> a WebSocket connection and therefore only has cron/watchdog-style checks.
+
+---
+
+## 🌐 Hosting options
+
+### Option A — Any Node.js host / VPS / Railway / Render / Termux (recommended)
+```bash
+npm install
+npm start          # Express + live WSS exits + HTTP watchdog + entry scheduler
+```
+Open positions are checked on every new BSC block. The 15-second HTTP watchdog is a
+safety fallback, while each profile's own scan interval controls only new entries.
 
 ### Option B — Docker
 ```bash
@@ -248,9 +291,10 @@ apply there. Instead:
 ## ⚙️ Environment variables
 
 See `.env.example` for the full annotated list. Required: `ENCRYPTION_KEY`,
-`UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`. Everything per-person (strategy,
-bankroll %, tokens, wallet…) is set from each person's own dashboard after they create
-their profile — not in environment variables.
+`UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`. `BSC_WSS_URL` is optional for
+local testing (a public default is provided) but strongly recommended with your own
+managed endpoint for real-money hosting. Everything per-person (strategy, bankroll %,
+tokens, wallet…) is set from the dashboard.
 
 ---
 
@@ -271,6 +315,7 @@ autotradingbsc/
 │   │   ├── strategies.js     ← Per-profile editable SL/TP ladders (CRUD + validation)
 │   │   ├── entryrules.js     ← Editable "when to buy" conditions (pure logic)
 │   │   ├── discovery.js      ← Coin discovery sweep + editable screening filters
+│   │   ├── livefeed.js       ← Live BSC blocks, stale detection, reconnect + status
 │   │   ├── wallet.js         ← Connect/disconnect, decrypt-on-demand signer
 │   │   ├── pancakeswap.js    ← Spot swap execution (takes an explicit signer)
 │   │   ├── market.js         ← DexScreener prices + on-chain token metadata
@@ -290,6 +335,7 @@ autotradingbsc/
 │   ├── test_direct.js         ← Strategy engine logic (mocked), profile isolation
 │   ├── test_http.js           ← Full HTTP API (mocked), two-profile cross-check
 │   ├── test_rules.js          ← Editable strategies, entry rules, coin discovery
+│   ├── test_live.js           ← Fake-WSS live blocks, coalescing, reconnect, fallback
 │   ├── setup-mocks.js         ← Swaps real chain/redis/market libs for fakes in tests
 │   └── mocks/                  ← wallet.js, pancakeswap.js, redis.js, market.js
 ├── server.js                   ← Entry point for persistent hosting

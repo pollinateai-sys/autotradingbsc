@@ -1,13 +1,13 @@
 {
   "name": "halal-bsc-trading-bot",
-  "version": "2.1.0",
-  "description": "Halal BEP20 spot trading bot with dashboard UI, multi-TP strategies, and Upstash-backed state. Self-host anywhere (VPS, Railway, Render, Docker) or deploy to Vercel.",
+  "version": "2.2.0",
+  "description": "Halal BEP20 spot trading bot with live every-block SL/TP monitoring, editable strategies and entry rules, automatic BSC coin discovery, and a multi-profile dashboard.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
     "vercel-dev": "vercel dev",
-    "test": "node test/test_crypto.js && node test/test_direct.js && node test/test_http.js && node test/test_rules.js"
+    "test": "node test/test_crypto.js && node test/test_direct.js && node test/test_http.js && node test/test_rules.js && node test/test_live.js"
   },
   "dependencies": {
     "@upstash/redis": "^1.34.0",

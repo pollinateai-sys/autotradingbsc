@@ -141,6 +141,65 @@ async function findBestQuote(provider, tokenAddress, bnbAmount) {
   return all.reduce((best, q) => (q.amountOut > best.amountOut ? q : best));
 }
 
+// ── Exact-size SELL quotes (token → WBNB) ─────────────────────
+// Live SL/TP checks care about what the remaining position can actually
+// be sold for, including pool price impact — not a chart's one-token spot
+// price. These helpers quote the exact token amount on every supported DEX.
+function tokenAmountToWei(tokenAmount, decimals) {
+  const precision = Math.max(0, Math.min(18, Number(decimals)));
+  const fixed = Number(tokenAmount).toFixed(precision).replace(/\.?0+$/, "") || "0";
+  return ethers.parseUnits(fixed, Number(decimals));
+}
+
+async function getV2SellQuote(provider, tokenAddress, amountWei, router) {
+  try {
+    const contract = new ethers.Contract(router.address, V2_ABI, provider);
+    const amounts  = await contract.getAmountsOut(amountWei, [tokenAddress, WBNB]);
+    if (!amounts || amounts[1] === 0n) return null;
+    return { amountOut: amounts[1], router, version: 2 };
+  } catch { return null; }
+}
+
+async function getV3SellQuote(provider, tokenAddress, amountWei) {
+  try {
+    const quoter = new ethers.Contract(V3_QUOTER_ADDRESS, V3_QUOTER_ABI, provider);
+    let best = null;
+    for (const fee of V3_ROUTER.feeTiers) {
+      try {
+        const out = await quoter.quoteExactInputSingle(tokenAddress, WBNB, fee, amountWei, 0n);
+        if (out > 0n && (!best || out > best.amountOut)) {
+          best = { amountOut: out, router: { ...V3_ROUTER, fee }, version: 3 };
+        }
+      } catch { /* fee tier not available */ }
+    }
+    return best;
+  } catch { return null; }
+}
+
+async function findBestSellQuote(provider, tokenAddress, tokenAmount) {
+  const token = new ethers.Contract(tokenAddress, ERC20_ABI, provider);
+  const decimals = Number(await token.decimals());
+  const amountWei = tokenAmountToWei(tokenAmount, decimals);
+  if (amountWei <= 0n) return null;
+
+  const [v2Quotes, v3Quote] = await Promise.all([
+    Promise.all(V2_ROUTERS.map(r => getV2SellQuote(provider, tokenAddress, amountWei, r))),
+    getV3SellQuote(provider, tokenAddress, amountWei),
+  ]);
+  const all = [...v2Quotes, v3Quote].filter(Boolean);
+  if (!all.length) return null;
+  const best = all.reduce((winner, q) => q.amountOut > winner.amountOut ? q : winner);
+  return { ...best, amountWei, decimals };
+}
+
+async function getExecutableSellPriceBnb(provider, tokenAddress, tokenAmount) {
+  if (!isFinite(Number(tokenAmount)) || Number(tokenAmount) <= 0) return null;
+  const quote = await findBestSellQuote(provider, tokenAddress, Number(tokenAmount));
+  if (!quote) return null;
+  const bnbOut = parseFloat(ethers.formatEther(quote.amountOut));
+  return bnbOut > 0 ? bnbOut / Number(tokenAmount) : null;
+}
+
 // ── Check if ANY DEX has liquidity (for token add validation) ─
 async function hasLiquidityAnywhere(provider, tokenAddress, minBnbEquiv = 0.001) {
   const result = await findBestQuote(provider, tokenAddress, minBnbEquiv);
@@ -217,51 +276,62 @@ async function buyToken(signerWallet, tokenAddress, bnbAmount, maxSlippage = 1.0
   throw lastError || new Error("Swap failed at all slippage levels (token may be a honeypot)");
 }
 
-// ── Execute sell using best DEX ───────────────────────────────
-async function sellToken(signerWallet, tokenAddress, tokenAmount) {
+// ── Execute exact-size sell on the best quoted DEX ─────────────
+async function sellToken(signerWallet, tokenAddress, tokenAmount, maxSlippage = 1.0, options = {}) {
   const provider = signerWallet.provider;
   const erc20    = new ethers.Contract(tokenAddress, ERC20_ABI, signerWallet);
-  const decimals = Number(await erc20.decimals());
-  const amountWei = ethers.parseUnits(
-    tokenAmount.toFixed(Math.min(18, decimals)), decimals
-  );
-  const gasPrice = await getGasPrice(provider);
-  const deadline = Math.floor(Date.now() / 1000) + 300;
+  const best     = await findBestSellQuote(provider, tokenAddress, tokenAmount);
+  if (!best) throw new Error("No sell liquidity found on any supported DEX");
 
-  // Find best sell route (swap token→WBNB direction)
-  // Use a small probe amount to find which DEX has a pool
-  const best = await findBestQuote(provider, tokenAddress, 0.001).catch(() => null);
-  const routerAddress = best ? best.router.address : V2_ROUTERS[0].address;
-  const routerAbi     = (best?.version === 3) ? V3_ROUTER_ABI : V2_ABI;
-  const routerName    = best?.router.name || "PancakeSwap V2";
+  const amountWei     = best.amountWei;
+  const gasPrice      = await getGasPrice(provider);
+  const deadline      = Math.floor(Date.now() / 1000) + 300;
+  const routerAddress = best.router.address;
+  const routerName    = best.router.name;
 
-  // Approve exact amount
+  // Approve the exact sale amount — never unlimited allowance.
   try {
     const approveTx = await erc20.approve(routerAddress, amountWei, { gasPrice });
     await approveTx.wait();
   } catch (e) { throw new Error(`Approval failed: ${cleanError(e)}`); }
 
-  try {
-    let tx;
-    if (best?.version === 3) {
-      const router = new ethers.Contract(V3_ROUTER.address, V3_ROUTER_ABI, signerWallet);
-      tx = await router.exactInputSingle(
-        [tokenAddress, WBNB, best.router.fee, signerWallet.address, amountWei, 0n, 0n],
-        { gasPrice, gasLimit: 400000n }
-      );
-    } else {
-      const router = new ethers.Contract(routerAddress, V2_ABI, signerWallet);
-      tx = await router.swapExactTokensForETHSupportingFeeOnTransferTokens(
-        amountWei, 0n, [tokenAddress, WBNB], signerWallet.address, deadline,
-        { gasPrice, gasLimit: 400000n }
-      );
+  // Normal TPs obey the selected slippage exactly. Emergency stop-losses
+  // may escalate after a revert so capital protection is not defeated by
+  // a fee-on-transfer token; still hard-capped at 49%.
+  const baseSlip = Math.max(0.1, Math.min(49, Number(maxSlippage) || 1));
+  const slippageLadder = options.emergency
+    ? [baseSlip, ...[3, 5, 10, 15, 20, 49].filter(s => s > baseSlip)]
+    : [baseSlip];
+
+  let lastError = null;
+  for (const slip of slippageLadder) {
+    const slipBps = BigInt(Math.floor(slip * 100));
+    const amountOutMin = (best.amountOut * (10000n - slipBps)) / 10000n;
+    try {
+      let tx;
+      if (best.version === 3) {
+        const router = new ethers.Contract(V3_ROUTER.address, V3_ROUTER_ABI, signerWallet);
+        tx = await router.exactInputSingle(
+          [tokenAddress, WBNB, best.router.fee, signerWallet.address, amountWei, amountOutMin, 0n],
+          { gasPrice, gasLimit: 400000n }
+        );
+      } else {
+        const router = new ethers.Contract(routerAddress, V2_ABI, signerWallet);
+        tx = await router.swapExactTokensForETHSupportingFeeOnTransferTokens(
+          amountWei, amountOutMin, [tokenAddress, WBNB], signerWallet.address, deadline,
+          { gasPrice, gasLimit: 400000n }
+        );
+      }
+      const receipt = await tx.wait();
+      if (receipt.status !== 1) throw new Error(`Sell reverted on ${routerName}`);
+      return { hash: tx.hash, dex: routerName, slippageUsed: slip, simulated: false };
+    } catch (e) {
+      lastError = new Error(`${routerName} at ${slip}% slippage: ${cleanError(e)}`);
+      if (!options.emergency || e.code !== "CALL_EXCEPTION") break;
+      console.log(`  🔁 Emergency sell retry at ${slip}% slippage failed; trying next protected level`);
     }
-    const receipt = await tx.wait();
-    if (receipt.status !== 1) throw new Error(`Sell reverted on ${routerName}`);
-    return { hash: tx.hash, dex: routerName, simulated: false };
-  } catch (e) {
-    throw new Error(`${routerName}: ${cleanError(e)}`);
   }
+  throw lastError || new Error(`Sell failed on ${routerName}`);
 }
 
 // ── Price in BNB (read-only, best available DEX) ─────────────
@@ -287,7 +357,8 @@ async function getCurrentPriceBnb(provider, tokenAddress) {
 }
 
 module.exports = {
-  buyToken, sellToken, getCurrentPriceBnb,
-  findBestQuote, hasLiquidityAnywhere,
+  buyToken, sellToken,
+  getCurrentPriceBnb, getExecutableSellPriceBnb,
+  findBestQuote, findBestSellQuote, hasLiquidityAnywhere,
   V2_ROUTERS, V3_ROUTER,
 };

@@ -19,6 +19,12 @@ async function getCurrentPriceBnb(provider, contract) {
   return FAKE_PRICES[contract] ?? DEFAULT_BASE_PRICE;
 }
 
+// Exact-size executable quote has no price impact in this simple mock,
+// so it equals the configured spot price.
+async function getExecutableSellPriceBnb(provider, contract, tokenAmount) {
+  return FAKE_PRICES[contract] ?? DEFAULT_BASE_PRICE;
+}
+
 async function findBestQuote(provider, tokenAddress, bnbAmount) {
   const price = FAKE_PRICES[tokenAddress] ?? DEFAULT_BASE_PRICE;
   const amountOut = BigInt(Math.floor((bnbAmount / price) * 1e18));
@@ -59,7 +65,7 @@ const sellTokenForBnb = (signer, addr, amt, auto) => sellToken(signer, addr, amt
 const getQuote = findBestQuote;
 
 module.exports = {
-  buyToken, sellToken, getCurrentPriceBnb, findBestQuote, hasLiquidityAnywhere,
+  buyToken, sellToken, getCurrentPriceBnb, getExecutableSellPriceBnb, findBestQuote, hasLiquidityAnywhere,
   buyTokenWithBnb, sellTokenForBnb, getQuote,
   _setPrice, _movePricePercent, _FAKE_PRICES: FAKE_PRICES,
 };

@@ -97,6 +97,43 @@ async function testNoPrematureExit() {
   assert(pos && pos.remainingTokens === pos.totalTokens, "No tokens sold prematurely");
 }
 
+async function testSuddenPumpCombinesEveryCrossedTp() {
+  console.log("\n── Strategy A: sudden pump combines crossed TP levels ──");
+  const profileId = await makeProfile("Pump-Jump");
+  const token = { symbol: "PUMP", contract: "0x1111111111111111111111111111111111111111" };
+  mocks.swap._setPrice(token.contract, 0.0001);
+  const opened = await openPosition(profileId, token);
+
+  // One new block jumps from entry straight past TP1 (+50), TP2 (+100)
+  // and TP3 (+200). Waiting for three later checks could miss the pump.
+  mocks.swap._setPrice(token.contract, 0.00032); // +220%
+  const result = await checkAndExecuteExits(profileId, "PUMP", { source: "live", blockNumber: 123 });
+  assert(result.action === "TP1+TP2+TP3", `+220% jump combines TP1+TP2+TP3 (got ${result.action})`);
+  assert(result.sellPct === 75, `Combined sell is 75% of original (got ${result.sellPct}%)`);
+  const remaining = await getPosition(profileId, "PUMP");
+  assert(remaining && approx(remaining.remainingTokens, opened.totalTokens * 0.25), "Exactly 25% remains after combined sale");
+  assert(JSON.stringify(remaining.tpHit) === JSON.stringify([0,1,2]), "TP1/TP2/TP3 are all marked hit atomically");
+}
+
+async function testConcurrentChecksCannotDoubleSell() {
+  console.log("\n── Per-position lock: overlapping checks cannot double-sell ──");
+  const profileId = await makeProfile("Lock-Test");
+  const token = { symbol: "LOCK", contract: "0x2222222222222222222222222222222222222222" };
+  mocks.swap._setPrice(token.contract, 0.0001);
+  const opened = await openPosition(profileId, token);
+  mocks.swap._setPrice(token.contract, 0.000155); // TP1 only
+
+  // Fire a live check and watchdog check in the same event-loop turn.
+  const [a, b] = await Promise.all([
+    checkAndExecuteExits(profileId, "LOCK", { source: "live" }),
+    checkAndExecuteExits(profileId, "LOCK", { source: "watchdog" }),
+  ]);
+  const actions = [a?.action, b?.action];
+  assert(actions.includes("TP1") && actions.includes("BUSY"), `One TP1 + one BUSY result (got ${actions.join("/")})`);
+  const pos = await getPosition(profileId, "LOCK");
+  assert(pos && approx(pos.remainingTokens, opened.totalTokens * 0.75), "Only one 25% sale occurred — no duplicate transaction");
+}
+
 async function testDuplicateTpNotDoubleFired() {
   console.log("\n── Strategy A: same TP does not fire twice ──");
   const profileId = await makeProfile("Dave");
@@ -150,6 +187,8 @@ async function main() {
   await testFullTpLadder();
   await testStopLoss();
   await testNoPrematureExit();
+  await testSuddenPumpCombinesEveryCrossedTp();
+  await testConcurrentChecksCannotDoubleSell();
   await testDuplicateTpNotDoubleFired();
   await testProfileIsolation();
   await testNoWalletBlocksTrading();

@@ -19,14 +19,31 @@ const { isCooledDown, getCooldownReason, setCooldown } = require("./cooldown");
 const telegram = require("./telegram");
 
 // ── Always runs for a profile — protects its existing capital ──
-async function checkAllPositions(profileId) {
-  const results   = [];
-  const positions = await getPositions(profileId);
+async function checkAllPositions(profileId, options = {}) {
+  const results = [];
+  // One Redis read each for the full position map + profile settings per
+  // block, instead of re-reading both for every symbol.
+  const [positions, settings] = await Promise.all([
+    getPositions(profileId),
+    getSettings(profileId),
+  ]);
 
   for (const symbol of Object.keys(positions)) {
     try {
-      const result = await checkAndExecuteExits(profileId, symbol);
-      if (result) results.push({ symbol, action: result.action, changePct: result.changePct });
+      const result = await checkAndExecuteExits(profileId, symbol, {
+        position: positions[symbol],
+        settings,
+        provider: options.provider,
+        source: options.source,
+        blockNumber: options.blockNumber,
+      });
+      if (result) results.push({
+        symbol,
+        action: result.action,
+        changePct: result.changePct,
+        sellPct: result.sellPct,
+        tpLevels: result.tpLevels,
+      });
     } catch (e) {
       results.push({ symbol, action: "ERROR", error: e.message });
       await telegram.sendError(`SL/TP check failed: ${symbol} — ${e.message}`);

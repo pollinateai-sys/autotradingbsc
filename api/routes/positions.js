@@ -8,7 +8,7 @@ const express = require("express");
 const router  = express.Router();
 const { requireProfile } = require("../middleware/auth");
 const { getPositions, getTradeLog, getSettings } = require("../lib/redis");
-const { getCurrentPriceBnb } = require("../lib/dex");
+const { getCurrentPriceBnb, getExecutableSellPriceBnb } = require("../lib/dex");
 const { getProvider } = require("../lib/wallet");
 const { resolvePositionStrategy } = require("../lib/strategies");
 
@@ -21,8 +21,17 @@ router.get("/", requireProfile, async (req, res) => {
     const settings = await getSettings(req.profileId);
 
     const enriched = await Promise.all(symbols.map(async (symbol) => {
-      const pos   = positions[symbol];
-      const price = await getCurrentPriceBnb(provider, pos.contract).catch(() => null);
+      const pos = positions[symbol];
+      // The live server persists a fresh executable-price snapshot every few
+      // seconds. Reuse it for the dashboard; only hit RPC directly if that
+      // snapshot is missing/stale (e.g. Vercel or watchdog fallback).
+      const snapshotAt = pos.lastPriceAt ? new Date(pos.lastPriceAt).getTime() : 0;
+      const snapshotFresh = pos.currentPrice != null && Date.now() - snapshotAt < 10_000;
+      let price = snapshotFresh ? pos.currentPrice : null;
+      if (!price && typeof getExecutableSellPriceBnb === "function") {
+        price = await getExecutableSellPriceBnb(provider, pos.contract, pos.remainingTokens).catch(() => null);
+      }
+      if (!price) price = await getCurrentPriceBnb(provider, pos.contract).catch(() => null);
       const strategy = await resolvePositionStrategy(req.profileId, pos, settings);
       const changePct = price
         ? ((price - pos.entryPriceBnb) / pos.entryPriceBnb) * 100

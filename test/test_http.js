@@ -102,6 +102,8 @@ async function main() {
     r = await req("GET", "/api/status", null, alice.token);
     assert(r.status === 200 && r.json.ok === true, "GET /api/status with Alice's real token → 200");
     assert(r.json.wallet.connected === false, "Fresh profile has no wallet connected yet");
+    assert(r.json.liveMonitor && typeof r.json.liveMonitor.mode === "string", "Status exposes live monitor mode");
+    assert(r.json.liveMonitor.transport === "BSC WebSocket newHeads", "Status identifies the BSC WebSocket transport");
 
     console.log("\n── Can't trade or start bot without a wallet ──");
     r = await req("POST", "/api/trade/buy", { symbol: "BTCB" }, alice.token);

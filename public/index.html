@@ -157,6 +157,20 @@
   .status-pill.stopped{ background:rgba(140,140,140,0.08); color:var(--text-dim); }
   .status-pill.stopped .dot{ background:var(--text-faint); }
 
+  .live-chip{
+    display:flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px;
+    border:1px solid var(--border); font-size:10.5px; font-weight:700;
+    letter-spacing:0.5px; font-family:var(--font-mono); white-space:nowrap;
+  }
+  .live-chip .dot{ width:6px; height:6px; border-radius:50%; }
+  .live-chip.live{ color:var(--jade); background:var(--jade-glow); border-color:rgba(34,168,112,.35); }
+  .live-chip.live .dot{ background:var(--jade); box-shadow:0 0 7px var(--jade); animation:livePulse 1.2s infinite; }
+  .live-chip.connecting, .live-chip.reconnecting{ color:var(--gold); background:var(--gold-glow); border-color:rgba(201,162,39,.35); }
+  .live-chip.connecting .dot, .live-chip.reconnecting .dot{ background:var(--gold); animation:livePulse .7s infinite; }
+  .live-chip.fallback, .live-chip.disabled{ color:var(--red); background:var(--red-glow); border-color:rgba(229,85,90,.35); }
+  .live-chip.fallback .dot, .live-chip.disabled .dot{ background:var(--red); }
+  @keyframes livePulse{ 50%{ opacity:.35; transform:scale(.75); } }
+
   .btn{
     display:inline-flex; align-items:center; gap:6px;
     padding:9px 16px; border-radius:var(--radius-sm);
@@ -639,6 +653,9 @@
       <div class="wallet-chip" id="walletChip" title="Wallet balance">
         <span>💰</span><b id="bnbBalance">—</b><span class="bnb">BNB</span>
       </div>
+      <div class="live-chip connecting" id="liveMonitorChip" title="Live position monitor status">
+        <span class="dot"></span><span id="liveMonitorText">CONNECTING</span>
+      </div>
       <div class="status-pill stopped" id="statusPill">
         <span class="dot"></span><span id="statusText">Loading…</span>
       </div>
@@ -911,7 +928,7 @@
     <div>
       <div class="section-eyebrow"><span class="star8"></span><span>Live</span></div>
       <div class="section-title">Open Positions</div>
-      <div class="section-sub">Refreshes automatically every 15 seconds.</div>
+      <div class="section-sub" id="positionMonitorText">The server monitors every open position on each BSC block. Dashboard prices refresh every 3 seconds.</div>
     </div>
   </div>
   <div class="card card-pad">
@@ -1050,7 +1067,8 @@ let tokensCache     = [];
 let historyCache    = [];
 let historyFilter   = "all";
 let pollTimer       = null;
-const POLL_MS = 15000;
+// UI snapshots only — trade execution is server-side on every BSC block.
+const POLL_MS = 3000;
 
 // ── Formatting helpers ───────────────────────────────────
 function fmtBnb(n, dp=6){ return (n===null||n===undefined||isNaN(n)) ? "—" : Number(n).toFixed(dp); }
@@ -1268,6 +1286,31 @@ document.getElementById("disconnectWalletBtn").addEventListener("click", async (
 function renderStatus(status){
   document.getElementById("profileLine").textContent =
     (status.profile?.username ? status.profile.username + " · " : "") + "Spot only · No leverage · No interest";
+
+  // Server-side live monitor: this controls execution speed. The browser's
+  // 3-second refresh only displays snapshots; it never decides a trade.
+  const live = status.liveMonitor || { mode:"disabled" };
+  const liveChip = document.getElementById("liveMonitorChip");
+  const liveText = document.getElementById("liveMonitorText");
+  const mode = ["live","connecting","reconnecting","fallback","disabled"].includes(live.mode) ? live.mode : "fallback";
+  liveChip.className = "live-chip " + mode;
+  if (mode === "live") {
+    liveText.textContent = `LIVE · #${live.lastBlockNumber || "—"}`;
+    liveChip.title = `Every-block position monitoring · last block ${live.secondsSinceBlock ?? 0}s ago`;
+  } else if (mode === "connecting") {
+    liveText.textContent = "CONNECTING";
+    liveChip.title = "Connecting to the BSC WebSocket feed; HTTP watchdog is active";
+  } else if (mode === "reconnecting") {
+    liveText.textContent = "RECONNECTING";
+    liveChip.title = (live.lastError || "WebSocket reconnecting") + " · HTTP watchdog remains active";
+  } else {
+    liveText.textContent = "FALLBACK";
+    liveChip.title = (live.lastError || "Live WebSocket unavailable") + ` · HTTP watchdog protects positions every ${live.watchdogSeconds || 15}s`;
+  }
+  const monitorLine = document.getElementById("positionMonitorText");
+  if (monitorLine) monitorLine.textContent = mode === "live"
+    ? `LIVE: server checks every open position on each BSC block (latest #${live.lastBlockNumber || "—"}). Dashboard snapshots refresh every 3 seconds.`
+    : `WebSocket is not live right now; the HTTP safety watchdog checks positions every ${live.watchdogSeconds || 15}s while reconnecting.`;
 
   walletConnected = !!status.wallet.connected;
   const walletBanner = document.getElementById("walletBanner");

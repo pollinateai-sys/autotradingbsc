@@ -1,23 +1,20 @@
 // ============================================================
-//  SERVER.JS — Entry point for persistent hosting
-//  (VPS, Railway, Render, Docker, Termux, your own PC — anything
-//  that can run "node server.js" and keep it alive 24/7)
+//  SERVER.JS — persistent hosting entry point
+//  (Node.js hosting, VPS, Railway, Render, Docker, Termux, PC)
 //
-//  Multi-profile: one server, any number of people, each with
-//  their own wallet/settings/tokens/positions. A single tick
-//  loop walks every profile every POSITION_CHECK_INTERVAL_SECONDS
-//  (default 5s, matching DexScreener's ~300 req/min allowance):
-//   1. Always checks that profile's open positions for SL/TP —
-//      even if their bot is "stopped" (protects existing capital)
-//   2. Scans for new entries only if botRunning=true, a wallet is
-//      connected, AND that profile's own scanIntervalSeconds has
-//      elapsed since its last scan
+//  Two deliberately separate jobs:
+//   1. EXITS: api/lib/livefeed.js subscribes to every new BSC
+//      block over WebSocket and immediately checks every open
+//      position. A slower HTTP watchdog always runs as backup.
+//   2. ENTRIES: a lightweight scheduler only decides when each
+//      profile's editable entry scan is due. Entry timing does
+//      not affect live SL/TP protection.
 //
-//  NOT needed on Vercel — Vercel uses api/index.js directly plus
-//  the /api/cron/scan route (scans all profiles) on a schedule.
+//  Vercel/serverless cannot hold a WebSocket open; it continues
+//  to use /api/cron/scan. Persistent Node.js hosting is required
+//  for true live position monitoring.
 // ============================================================
 
-// ── Friendly check: catch the #1 first-run mistake ──────────
 const fs   = require("fs");
 const path = require("path");
 if (!fs.existsSync(path.join(__dirname, "node_modules"))) {
@@ -31,9 +28,6 @@ if (!fs.existsSync(path.join(__dirname, "node_modules"))) {
 
 require("dotenv").config();
 
-// ── Friendly check: ENCRYPTION_KEY must be valid before anything
-// that could touch a wallet runs, or the first "Connect Wallet"
-// click would fail with a confusing error deep in crypto.js.
 try {
   require("./api/lib/crypto").getEncryptionKey();
 } catch (e) {
@@ -43,114 +37,151 @@ try {
 
 const app = require("./api/index");
 const { checkAllPositions, scanForNewEntries } = require("./api/lib/scanner");
+const { startLiveMonitor, stopLiveMonitor, getLiveStatus } = require("./api/lib/livefeed");
 const {
   getAllProfileIds, getProfileMeta, getSettings, getStats, updateStats, hasWallet,
 } = require("./api/lib/redis");
 const telegram = require("./api/lib/telegram");
 
 const PORT = process.env.PORT || 3000;
-const TICK_SECONDS = parseInt(process.env.POSITION_CHECK_INTERVAL_SECONDS || "5");
+const ENTRY_LOOP_SECONDS = Math.max(1, parseInt(process.env.ENTRY_LOOP_INTERVAL_SECONDS || "3", 10) || 3);
+const WATCHDOG_SECONDS   = Math.max(5, parseInt(process.env.POSITION_WATCHDOG_INTERVAL_SECONDS || "15", 10) || 15);
 
 const BANNER = `
 ╔══════════════════════════════════════════════════════════╗
-║          HALAL BSC TRADING BOT — v3.0                    ║
-║          Multi-profile · Spot Only · BEP20 · PancakeSwap  ║
-║          No AI | No Leverage | No Interest                ║
+║          HALAL BSC TRADING BOT — v2.2 LIVE               ║
+║          Multi-profile · Spot Only · BEP20 · Multi-DEX    ║
+║          Live exits | No leverage | No interest           ║
 ╚══════════════════════════════════════════════════════════╝`;
 
-let ticking = false;
+let entryTicking = false;
+let watchdogTicking = false;
+let entryTimer = null;
+let watchdogTimer = null;
+let httpServer = null;
+let shuttingDown = false;
 
-async function tick() {
-  if (ticking) return; // don't overlap if a previous tick is still running
-  ticking = true;
+function printExitResults(profileLabel, results, source) {
+  for (const result of results) {
+    if (result.action && !["HOLD", "BUSY"].includes(result.action)) {
+      console.log(`  ${source === "watchdog" ? "🛟" : "🔎"} [${profileLabel}] ${result.symbol}: ${result.action} (${Number(result.changePct || 0).toFixed(2)}%)`);
+    }
+  }
+}
+
+// ── Entry scheduler only ─────────────────────────────────────
+async function entryTick() {
+  if (entryTicking || shuttingDown) return;
+  entryTicking = true;
   try {
     const profileIds = await getAllProfileIds();
-    if (profileIds.length === 0) return;
-
     for (const profileId of profileIds) {
       try {
-        // 1. Always protect existing capital, regardless of botRunning
-        const exitResults = await checkAllPositions(profileId);
-        if (exitResults.length > 0) {
-          const meta = await getProfileMeta(profileId);
-          exitResults.forEach(r => {
-            if (r.action && r.action !== "HOLD") {
-              console.log(`  🔎 [${meta?.username || profileId}] ${r.symbol}: ${r.action} (${r.changePct?.toFixed(2)}%)`);
-            }
-          });
-        }
-
-        // 2. New entries only if running, wallet connected, and this
-        //    profile's own scan interval has elapsed
         const settings = await getSettings(profileId);
-        if (!settings.botRunning) continue;
-        if (!(await hasWallet(profileId))) continue;
+        if (!settings.botRunning || !(await hasWallet(profileId))) continue;
 
         const stats = await getStats(profileId);
         const intervalMs = Math.max(1, settings.scanIntervalSeconds) * 1000;
-        const dueForScan = !stats.lastScan || (Date.now() - new Date(stats.lastScan).getTime()) >= intervalMs;
+        const due = !stats.lastScan
+          || Date.now() - new Date(stats.lastScan).getTime() >= intervalMs;
+        if (!due) continue;
 
-        if (dueForScan) {
-          const meta = await getProfileMeta(profileId);
-          console.log(`  🔍 [${meta?.username || profileId}] Running entry scan...`);
-          const results = await scanForNewEntries(profileId);
-          const summary = `Opened: ${results.opened.length} | Skipped: ${results.skipped.length} | Errors: ${results.errors.length}`;
-          console.log(`  ✅ [${meta?.username || profileId}] ${summary}`);
-          if (results.errors.length > 0) {
-            results.errors.forEach(e => {
-              console.log(`  ❌ [${meta?.username || profileId}] ${e.symbol}: ${e.error}`);
-            });
-          }
-          await updateStats(profileId, { lastScan: new Date().toISOString() });
-        }
+        const meta = await getProfileMeta(profileId);
+        const label = meta?.username || profileId;
+        console.log(`  🔍 [${label}] Running entry scan...`);
+        const results = await scanForNewEntries(profileId);
+        console.log(`  ✅ [${label}] Opened: ${results.opened.length} | Skipped: ${results.skipped.length} | Errors: ${results.errors.length}`);
+        for (const error of results.errors) console.log(`  ❌ [${label}] ${error.symbol}: ${error.error}`);
+        await updateStats(profileId, { lastScan: new Date().toISOString() });
       } catch (e) {
-        console.error(`  ❌ Tick error for profile ${profileId}:`, e.message);
-        await telegram.sendError(`Tick error (profile ${profileId}): ${e.message}`);
+        console.error(`  ❌ Entry scheduler error for ${profileId}:`, e.message);
+        await telegram.sendError(`Entry scheduler error (profile ${profileId}): ${e.message}`);
       }
     }
   } finally {
-    ticking = false;
+    entryTicking = false;
+  }
+}
+
+// ── HTTP watchdog — always active, even while WSS is healthy ─
+// This is intentionally slower than live blocks. If the socket silently dies,
+// stale detection reconnects it; if reconnect is impossible, this still exits.
+async function watchdogTick() {
+  if (watchdogTicking || shuttingDown) return;
+  watchdogTicking = true;
+  try {
+    const profileIds = await getAllProfileIds();
+    for (const profileId of profileIds) {
+      try {
+        const results = await checkAllPositions(profileId, { source: "watchdog" });
+        if (results.length) {
+          const meta = await getProfileMeta(profileId);
+          printExitResults(meta?.username || profileId, results, "watchdog");
+        }
+      } catch (e) {
+        console.error(`  ❌ Watchdog error for profile ${profileId}:`, e.message);
+        await telegram.sendError(`Position watchdog error (profile ${profileId}): ${e.message}`);
+      }
+    }
+  } finally {
+    watchdogTicking = false;
   }
 }
 
 // ── Startup ──────────────────────────────────────────────────
 async function start() {
   console.log(BANNER);
-
   const profileIds = await getAllProfileIds();
-  console.log(`  👥 Profiles registered: ${profileIds.length}`);
-  console.log(`  🔁 Tick interval      : every ${TICK_SECONDS}s (checks all profiles)`);
-  console.log(`  ℹ️  Each profile's own "Scan interval" setting controls how often`);
-  console.log(`     THAT profile looks for new entries; position monitoring runs`);
-  console.log(`     every tick for everyone with open positions, always.\n`);
+  console.log(`  👥 Profiles registered : ${profileIds.length}`);
+  console.log(`  ⚡ Position exits      : every new BSC block (WebSocket)`);
+  console.log(`  🛟 HTTP safety watchdog: every ${WATCHDOG_SECONDS}s`);
+  console.log(`  🔍 Entry scheduler     : checks due scans every ${ENTRY_LOOP_SECONDS}s`);
+  console.log(`  ℹ️  Entry scans keep their per-profile interval; once bought,`);
+  console.log(`     the position is protected independently on every block.\n`);
 
-  app.listen(PORT, () => {
+  httpServer = app.listen(PORT, () => {
     console.log(`  ✅ Dashboard running at http://localhost:${PORT}\n`);
   });
 
-  await telegram.sendInfo(`🤖 Bot server started — ${profileIds.length} profile(s) registered`);
+  // Do not hold dashboard startup hostage to a slow/dead public WSS endpoint.
+  // startLiveMonitor handles its own errors and reconnect loop.
+  startLiveMonitor().then(() => {
+    const live = getLiveStatus();
+    if (live.mode === "fallback") console.log("  🛟 Started in HTTP watchdog fallback mode");
+  }).catch(e => console.error("  ⚠️  Live monitor startup error:", e.message));
 
-  tick();
-  setInterval(tick, TICK_SECONDS * 1000);
+  await telegram.sendInfo(`🤖 Bot server started — live BSC position monitoring enabled for ${profileIds.length} profile(s)`);
+
+  entryTick();
+  watchdogTick();
+  entryTimer = setInterval(entryTick, ENTRY_LOOP_SECONDS * 1000);
+  watchdogTimer = setInterval(watchdogTick, WATCHDOG_SECONDS * 1000);
 }
 
 // ── Graceful shutdown ────────────────────────────────────────
-process.on("SIGINT", async () => {
-  console.log("\n\n  ⛔ Shutting down gracefully...");
-  await telegram.sendInfo("🛑 Bot server stopped (SIGINT)");
+async function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`\n  ⛔ ${signal} received — shutting down gracefully...`);
+  if (entryTimer) clearInterval(entryTimer);
+  if (watchdogTimer) clearInterval(watchdogTimer);
+  await stopLiveMonitor();
+  await telegram.sendInfo(`🛑 Bot server stopped (${signal})`);
+  if (httpServer) await new Promise(resolve => httpServer.close(resolve));
   process.exit(0);
-});
+}
 
-process.on("SIGTERM", async () => {
-  console.log("\n  ⛔ SIGTERM received — shutting down...");
-  await telegram.sendInfo("🛑 Bot server stopped (SIGTERM)");
-  process.exit(0);
-});
+process.on("SIGINT",  () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
 
 process.on("uncaughtException", async (err) => {
   console.error("  ❌ Uncaught exception:", err);
   await telegram.sendError(`Uncaught exception: ${err.message}`);
-  // Don't exit — keep the dashboard alive for other profiles, just log it
+  // Keep the dashboard + watchdog alive for other profiles.
+});
+process.on("unhandledRejection", async (err) => {
+  console.error("  ❌ Unhandled rejection:", err);
+  await telegram.sendError(`Unhandled rejection: ${err?.message || err}`);
 });
 
 start().catch((e) => {

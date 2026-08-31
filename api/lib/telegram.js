@@ -26,6 +26,11 @@ module.exports = {
     send(`🟢 <b>BUY</b> — ${symbol}\nSpent: ${bnb} BNB\nEntry: ${price} BNB\nStrategy: ${strategy.name}\nSL: ${strategy.stopLoss}%\nTPs: ${strategy.takeProfits.map((t,i)=>`TP${i+1}:+${t.targetPercent}%(sell ${t.sellPercent}%)`).join(", ")}`),
   sendTp: (symbol, num, target, sellPct, actual, hash) =>
     send(`🎯 <b>TP${num} HIT</b> — ${symbol}\nTarget: +${target}%\nActual: +${actual.toFixed(2)}%\nSold: ${sellPct}%\nTX: <code>${hash}</code>`),
+  sendTpBundle: (symbol, levels, totalSellPct, actual, hash) => {
+    const names = levels.map(tp => `TP${tp.index + 1}`).join(" + ");
+    const targets = levels.map(tp => `+${tp.targetPercent}%`).join(", ");
+    return send(`🎯 <b>${names} HIT</b> — ${symbol}\nTargets crossed: ${targets}\nActual: +${actual.toFixed(2)}%\nSold: ${totalSellPct}% of original position\nTX: <code>${hash}</code>`);
+  },
   sendSL: (symbol, changePct, hash) =>
     send(`🔴 <b>STOP LOSS</b> — ${symbol}\nP&L: ${changePct.toFixed(2)}%\nTX: <code>${hash}</code>`),
   sendInfo: (msg) => send(`ℹ️ ${msg}`),

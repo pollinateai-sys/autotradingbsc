@@ -5,6 +5,7 @@ const { requireProfile } = require("../middleware/auth");
 const { getBnbBalance, getWalletInfo } = require("../lib/wallet");
 const { getPositions, getStats, getSettings, getTokens } = require("../lib/redis");
 const strategyStore = require("../lib/strategies");
+const { getLiveStatus } = require("../lib/livefeed");
 
 router.get("/", requireProfile, async (req, res) => {
   try {
@@ -42,6 +43,7 @@ router.get("/", requireProfile, async (req, res) => {
       stats,
       tokenCount: tokens.length,
       enabledTokenCount: tokens.filter(t => t.enabled).length,
+      liveMonitor: getLiveStatus(),
     });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
