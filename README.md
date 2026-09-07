@@ -1,12 +1,13 @@
-# 🕌 Halal BSC Trading Bot
+# 📈 BSC Spot Trading Bot
 
 A **spot-only** trading bot for BEP20 tokens on Binance Smart Chain, controlled from a
 full web dashboard. **Multi-profile** — any number of people can share one deployment,
-each with their own wallet, strategy, token list, and trade history, isolated from
-everyone else's.
+each with their own wallet, strategy, token list, theme, and trade history, isolated
+from everyone else's.
 
-No AI, no leverage, no margin, no interest-bearing positions. Pure rule-based strategy:
-a stop-loss and a multi-level take-profit ladder that each person picks for themselves.
+No AI, no leverage, no margin, no borrowed funds. Pure rule-based execution: editable
+entry conditions, plus a stop-loss and multi-level take-profit ladder you define
+yourself — with live every-block exit monitoring.
 
 **Self-host anywhere** — a VPS, Railway, Render, Docker, Termux, your own PC, or Vercel.
 
@@ -22,7 +23,7 @@ There's no shared login. Each person:
 2. **Connects their own wallet** — pastes their BEP20 private key into the dashboard
    once. It's encrypted (AES-256-GCM) and stored server-side so the bot can keep trading
    for them even while they're offline. The raw key is never shown again after this.
-3. **Picks a strategy, adds their halal tokens, hits Start.** Everything from here — the
+3. **Picks a strategy, adds their tokens, hits Start.** Everything from here — the
    dashboard sections below — is scoped only to that person.
 
 | Section | What it does |
@@ -32,6 +33,7 @@ There's no shared login. Each person:
 | **Strategy Manager** | Stop-loss / take-profit ladders — edit any SL/TP, add your own strategies, delete unused ones, click a card to switch |
 | **Coins Found** | Auto-discovers live BSC coins passing your editable screening filters (liquidity, 24h volume, **minimum age**, market cap, txn count) — enable the ones you want, skip the rest, ask for another 20 |
 | **Token Manager** | Add any BEP20 contract address; the bot reads its symbol/name on-chain |
+| **Appearance & Preferences** | Theme, accent colour, density, custom dashboard name, refresh rate, and comfort toggles — saved per profile |
 | **Open Positions** | **Every-block live monitoring** over BSC WebSocket, executable current price, P&L, TP progress, next target, time held |
 | **Trade History** | Every buy / TP / stop-loss / manual close, with win rate and BscScan links |
 
@@ -53,7 +55,7 @@ passphrase is kept around to gate that. Concretely:
   instead of sharing one.
 
 Beyond that:
-- **Spot only** — every trade is a direct token swap on PancakeSwap V2, settled
+- **Spot only** — every trade is a direct token swap on a supported BSC DEX, settled
   immediately into the trader's own wallet. No margin, no borrowing, no perpetuals.
 - **Exact-amount approvals only** — never unlimited token allowance.
 - **Slippage capped**, **liquidity floor** enforced per-profile.
@@ -64,7 +66,7 @@ Beyond that:
   never visible to another profile, enforced at every API route (covered by the test
   suite, including an explicit cross-contamination check).
 
-None of this makes a trade a certified halal transaction — see the disclaimer at the end.
+None of this eliminates market risk — see the disclaimer at the end.
 
 ---
 
@@ -201,7 +203,7 @@ How it works:
    liquidity, 24h volume, market cap, 24h transactions, 24h change, DEX, and a
    BscScan link.
 3. **✓ Enable for trading** verifies the token on-chain (real pool on a supported DEX)
-   and adds it straight to your halal trading list.
+   and adds it straight to your trading list.
 4. **Skip** hides a coin permanently for your profile — so **Show me another 20**
    is always a fresh set, never the same coins again. **Un-skip all** resets that.
 
@@ -210,10 +212,40 @@ cached for 90 seconds and shared across profiles, so paging through batches cost
 extra API calls. Skip lists and filters are **per profile** — nobody sees yours.
 
 > ⚠️ Discovery is a *screener*, not an endorsement. It only proves a coin met your
-> numeric thresholds. **Always verify a coin is halal yourself before enabling it.**
+> numeric thresholds. **Always do your own research before enabling a coin.**
 
 API: `GET /api/discover?offset=0` · `POST /api/discover/filters` ·
 `POST /api/discover/enable` · `POST /api/discover/dismiss` · `POST /api/discover/reset`
+
+---
+
+## 🎨 Appearance & Preferences — make it yours
+
+Every profile gets its own look and feel, saved server-side so it follows you to any
+device you sign in from. Changes preview instantly as you adjust them.
+
+| Setting | Options |
+|---|---|
+| **Accent colour** | 8 presets (Jade, Azure, Violet, Amber, Rose, Cyan, Crimson, Slate) **or any custom hex** via colour picker |
+| **Highlight colour** | Any colour — used for secondary emphasis and progress bars |
+| **Theme** | Midnight · Carbon · Navy · **Light** |
+| **Layout density** | Comfortable or Compact (tighter tables, more rows on screen) |
+| **Dashboard name** | Rename the whole dashboard (e.g. "My Trading Desk") |
+| **Tagline** | Custom subtitle under the name |
+| **Refresh rate** | 2–120 seconds for dashboard snapshots |
+| **Price display** | USD or BNB |
+| **Compact numbers** | `$1.2M` or full `$1,200,000` |
+| **Star motif** | Toggle the decorative geometric accents |
+| **Confirm before closing** | Safety prompt on manual position close |
+| **Confirm before enabling** | Prompt when adding a coin from Coins Found |
+| **Section visibility** | Hide *Coins Found* and/or *Profile Management* |
+
+The accent you choose re-themes the entire interface — buttons, charts, toggles,
+status pills and progress bars — because every component reads the same CSS variables.
+Preferences are cached locally too, so the theme paints instantly on load with no flash
+of the default colours. **None of these settings affect trading logic.**
+
+API: `POST /api/settings/update { uiPreferences }` · presets listed in `GET /api/settings`
 
 ---
 
@@ -272,8 +304,8 @@ safety fallback, while each profile's own scan interval controls only new entrie
 
 ### Option B — Docker
 ```bash
-docker build -t halal-bot .
-docker run -d --env-file .env -p 3000:3000 --name halal-bot halal-bot
+docker build -t tradingbot .
+docker run -d --env-file .env -p 3000:3000 --name tradingbot tradingbot
 ```
 
 ### Option C — Vercel
@@ -306,7 +338,7 @@ autotradingbsc/
 │   ├── index.js              ← Express app (routes wired here)
 │   ├── config/
 │   │   ├── strategies.js     ← Strategy A/B/C definitions
-│   │   └── tokens.js         ← Default token seed (new profiles only)
+│   │   └── tokens.js         ← Default watchlist seed (new profiles only)
 │   ├── middleware/
 │   │   └── auth.js           ← Resolves x-api-key → profileId for every route
 │   ├── lib/
@@ -316,6 +348,7 @@ autotradingbsc/
 │   │   ├── entryrules.js     ← Editable "when to buy" conditions (pure logic)
 │   │   ├── discovery.js      ← Coin discovery sweep + editable screening filters
 │   │   ├── livefeed.js       ← Live BSC blocks, stale detection, reconnect + status
+│   │   ├── preferences.js    ← Per-profile theme + dashboard customization
 │   │   ├── wallet.js         ← Connect/disconnect, decrypt-on-demand signer
 │   │   ├── pancakeswap.js    ← Spot swap execution (takes an explicit signer)
 │   │   ├── market.js         ← DexScreener prices + on-chain token metadata
@@ -349,9 +382,9 @@ autotradingbsc/
 ## ⚠️ Disclaimer
 
 This bot is provided for educational purposes. Crypto trading carries significant
-financial risk, including total loss of capital. The halal-compliance features
-(spot-only execution, no leverage/margin/interest, user-curated token list) are
-mechanical safeguards, not a religious ruling — always consult a qualified Islamic
-finance scholar before trading, and never trade with money you cannot afford to lose.
+financial risk, including total loss of capital. Its safeguards (spot-only execution,
+no leverage/margin/borrowing, exact-amount approvals, user-curated token list,
+liquidity floors) are mechanical risk controls, not a guarantee of profit or safety.
+This is not financial advice — never trade with money you cannot afford to lose.
 If you're sharing one deployment with someone else, make sure you've both read the
 security model section above and are comfortable with it.

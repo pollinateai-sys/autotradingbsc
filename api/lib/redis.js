@@ -18,6 +18,7 @@ const { hashPassword, verifyPassword, hashToken, generateSessionToken, newProfil
 const DEFAULT_TOKENS = require("../config/tokens");
 const { DEFAULT_ENTRY_RULES } = require("./entryrules");
 const { DEFAULT_DISCOVERY_FILTERS } = require("./discovery");
+const { DEFAULT_UI_PREFERENCES } = require("./preferences");
 
 let redis;
 
@@ -201,6 +202,11 @@ async function getSettings(profileId) {
   } else {
     merged.discoveryFilters = { ...DEFAULT_DISCOVERY_FILTERS, ...merged.discoveryFilters };
   }
+  // Dashboard look-and-feel — merged so new preference fields added in a
+  // future version appear automatically for existing profiles.
+  merged.uiPreferences = (merged.uiPreferences && typeof merged.uiPreferences === "object")
+    ? { ...DEFAULT_UI_PREFERENCES, ...merged.uiPreferences }
+    : JSON.parse(JSON.stringify(DEFAULT_UI_PREFERENCES));
   return merged;
 }
 async function updateSettings(profileId, patch) {

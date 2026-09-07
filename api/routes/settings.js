@@ -12,12 +12,14 @@ const { requireProfile } = require("../middleware/auth");
 const { getSettings, updateSettings, hasWallet } = require("../lib/redis");
 const strategyStore = require("../lib/strategies");
 const { validateEntryRules } = require("../lib/entryrules");
+const { validateUiPreferences, ACCENT_PRESETS, THEMES } = require("../lib/preferences");
 
 const ALLOWED_FIELDS = [
   "activeStrategy", "bankrollPercent", "maxOpenTrades",
   "maxSlippagePercent", "minLiquidityUsd", "autoTrade",
   "botRunning", "scanIntervalSeconds", "minBnbReserve",
-  "entryRules", // editable buy conditions — validated below before saving
+  "entryRules",    // editable buy conditions — validated below before saving
+  "uiPreferences", // dashboard theme + comfort settings (presentation only)
 ];
 
 router.get("/", requireProfile, async (req, res) => {
@@ -26,7 +28,13 @@ router.get("/", requireProfile, async (req, res) => {
       getSettings(req.profileId),
       strategyStore.getStrategies(req.profileId),
     ]);
-    res.json({ ok: true, settings, strategies });
+    res.json({
+      ok: true,
+      settings,
+      strategies,
+      // Theme catalogue so the dashboard never hardcodes the option list
+      appearance: { accentPresets: ACCENT_PRESETS, themes: THEMES },
+    });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }
@@ -50,6 +58,10 @@ router.post("/update", requireProfile, async (req, res) => {
     if (patch.entryRules !== undefined) {
       // Strict validation — this object decides when real money moves
       patch.entryRules = validateEntryRules(patch.entryRules);
+    }
+
+    if (patch.uiPreferences !== undefined) {
+      patch.uiPreferences = validateUiPreferences(patch.uiPreferences);
     }
 
     if (patch.bankrollPercent !== undefined) {

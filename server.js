@@ -49,7 +49,7 @@ const WATCHDOG_SECONDS   = Math.max(5, parseInt(process.env.POSITION_WATCHDOG_IN
 
 const BANNER = `
 ╔══════════════════════════════════════════════════════════╗
-║          HALAL BSC TRADING BOT — v2.2 LIVE               ║
+║          BSC SPOT TRADING BOT — v3.0                     ║
 ║          Multi-profile · Spot Only · BEP20 · Multi-DEX    ║
 ║          Live exits | No leverage | No interest           ║
 ╚══════════════════════════════════════════════════════════╝`;

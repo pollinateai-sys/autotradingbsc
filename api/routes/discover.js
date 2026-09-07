@@ -53,7 +53,7 @@ router.post("/filters", requireProfile, async (req, res) => {
 });
 
 // Enable a discovered coin = verify it on-chain, then add it to the
-// halal trading list (same validation path as a manually pasted address)
+// trading list (same validation path as a manually pasted address)
 router.post("/enable", requireProfile, async (req, res) => {
   try {
     const { contract } = req.body || {};

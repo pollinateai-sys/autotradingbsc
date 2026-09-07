@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Halal BSC Trading Bot — Control Panel</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🕌</text></svg>">
+<title>BSC Spot Trading Bot — Control Panel</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📈</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -12,11 +12,14 @@
   /* ============================================================
      DESIGN TOKENS
      Palette: deep blackened-jade ink background, muted jade
-     primary (halal green), warm brass/gold signature accent
+     primary accent (themeable), warm gold highlight accent
      (used for highlights + the geometric star motif), profit
      green, loss red. Type: IBM Plex Sans (UI) + IBM Plex Mono
      (numbers / addresses / data — ledger feel).
   ============================================================ */
+  /* Theme surfaces are set per palette via [data-theme]; the accent and
+     highlight hues are injected at runtime from the profile's saved
+     preferences, so every colour below is customizable. */
   :root{
     --ink:        #0a1512;
     --surface:    #0f1e19;
@@ -43,6 +46,43 @@
     --shadow-card: 0 1px 2px rgba(0,0,0,0.4), 0 8px 24px -12px rgba(0,0,0,0.5);
   }
 
+  /* ── Theme palettes (backgrounds/text only — accent is separate) ── */
+  [data-theme="carbon"]{
+    --ink:#0b0b0d; --surface:#131316; --surface-2:#1a1a1f; --surface-3:#232329;
+    --border:#2c2c34; --border-soft:#212127;
+    --text:#eeeef2; --text-dim:#9a9aa6; --text-faint:#6b6b78;
+  }
+  [data-theme="navy"]{
+    --ink:#0a1020; --surface:#111a2e; --surface-2:#16223b; --surface-3:#1e2d4d;
+    --border:#27395c; --border-soft:#1d2b47;
+    --text:#e8eefc; --text-dim:#93a4c6; --text-faint:#647396;
+  }
+  [data-theme="light"]{
+    --ink:#f3f5f7; --surface:#ffffff; --surface-2:#f4f6f8; --surface-3:#e8ecf0;
+    --border:#d4dae1; --border-soft:#e3e8ed;
+    --text:#131a22; --text-dim:#5a6674; --text-faint:#8a95a3;
+    --shadow-card: 0 1px 2px rgba(16,24,40,0.06), 0 8px 24px -12px rgba(16,24,40,0.14);
+  }
+  [data-theme="light"] body{ background-attachment:initial; }
+  [data-theme="light"] .topbar{ background:rgba(255,255,255,0.9); }
+  [data-theme="light"] .btn-primary{ color:#ffffff; }
+  [data-theme="light"] .btn-gold{ color:#2b2205; }
+  [data-theme="light"] ::selection{ color:#ffffff; }
+
+  /* ── Compact density ── */
+  [data-density="compact"] .card-pad{ padding:13px; }
+  [data-density="compact"] td{ padding:7px 10px; font-size:12.5px; }
+  [data-density="compact"] th{ padding:7px 10px; }
+  [data-density="compact"] .stat-tile{ padding:11px 13px; }
+  [data-density="compact"] .stat-tile .value{ font-size:17px; }
+  [data-density="compact"] .divider{ margin:24px 0 14px; }
+  [data-density="compact"] .coin-card{ padding:11px; gap:8px; }
+  [data-density="compact"] .section-title{ font-size:17px; }
+
+  /* Optional decorative motif */
+  [data-motif="off"] .star8{ display:none !important; }
+  [data-motif="off"] .divider{ min-height:1px; }
+
   *{ box-sizing:border-box; margin:0; padding:0; }
   html{ scroll-behavior:smooth; }
   @media (prefers-reduced-motion: reduce){ html{ scroll-behavior:auto; } *{ animation-duration:0.01ms !important; transition-duration:0.01ms !important; } }
@@ -60,7 +100,7 @@
     background-attachment:fixed;
   }
 
-  /* ── Signature element: 8-point geometric star (Islamic motif),
+  /* ── Signature element: 8-point geometric star,
         used sparingly as watermark + section dividers ── */
   .star8{
     display:inline-block;
@@ -564,6 +604,43 @@
   .modal-actions .btn{ flex:1; justify-content:center; }
   .modal-error{ font-size:12px; color:var(--red); margin-top:12px; min-height:1em; line-height:1.5; }
 
+  /* ── Appearance & preferences ─────────────────────────────── */
+  .pref-block{ margin-bottom:18px; }
+  .pref-label{ font-size:11px; text-transform:uppercase; letter-spacing:0.6px; color:var(--text-faint); font-weight:600; margin-bottom:9px; }
+  .swatch-row{ display:flex; flex-wrap:wrap; gap:9px; }
+  .swatch{
+    width:34px; height:34px; border-radius:9px; border:2px solid transparent;
+    position:relative; cursor:pointer; padding:0; transition:transform .08s ease;
+    box-shadow:0 0 0 1px var(--border);
+  }
+  .swatch:hover{ transform:translateY(-1px); }
+  .swatch.active{ border-color:var(--text); box-shadow:0 0 0 1px var(--border), 0 0 0 3px rgba(127,127,127,.22); }
+  .swatch.active::after{
+    content:"✓"; position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    color:#fff; font-size:14px; font-weight:800; text-shadow:0 1px 3px rgba(0,0,0,.55);
+  }
+  .custom-color-row{ display:flex; gap:16px; flex-wrap:wrap; margin-top:12px; }
+  .cc-item{ display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-dim); }
+  .cc-item input[type=color]{
+    width:40px; height:28px; padding:0; border:1px solid var(--border);
+    border-radius:6px; background:var(--surface-2); cursor:pointer;
+  }
+  .prefs-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:16px; }
+  @media (max-width:900px){ .prefs-grid{ grid-template-columns:1fr 1fr; } }
+  @media (max-width:520px){ .prefs-grid{ grid-template-columns:1fr; } }
+  .prefs-grid .field input[type=text], .prefs-grid .field select, .prefs-grid .field input[type=number]{
+    background:var(--surface-2); border:1px solid var(--border); color:var(--text);
+    padding:9px 10px; border-radius:var(--radius-sm); font-size:13px; font-family:var(--font-mono);
+  }
+  .prefs-grid .field input:focus, .prefs-grid .field select:focus{ border-color:var(--jade); outline:none; }
+  .pref-toggles{ display:grid; grid-template-columns:1fr 1fr; gap:10px 22px; margin-bottom:18px; }
+  @media (max-width:760px){ .pref-toggles{ grid-template-columns:1fr; } }
+  .pref-toggles .toggle-row{
+    background:var(--surface-2); border:1px solid var(--border-soft);
+    border-radius:var(--radius-sm); padding:10px 13px;
+  }
+  .tg-title{ font-size:12.5px; font-weight:600; }
+
   /* ── Coins Found (discovery) ─────────────────────────────── */
   .filters-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:16px; }
   @media (max-width:900px){ .filters-grid{ grid-template-columns:1fr 1fr; } }
@@ -645,7 +722,7 @@
     <div class="brand">
       <div class="brand-mark"><span class="star8"></span></div>
       <div class="brand-text">
-        <h1>Halal BSC Trading Bot</h1>
+        <h1 id="brandTitle">BSC Spot Trading Bot</h1>
         <span id="profileLine">Spot only · No leverage · No interest</span>
       </div>
     </div>
@@ -753,6 +830,107 @@
   </div>
 
   <!-- ══════════════════════════════════════════════════════════
+       SECTION 1B — APPEARANCE & PREFERENCES
+  ══════════════════════════════════════════════════════════ -->
+  <div class="divider"><span class="star8"></span></div>
+  <div class="section-head">
+    <div>
+      <div class="section-eyebrow"><span class="star8"></span><span>Personalize</span></div>
+      <div class="section-title">Appearance &amp; Preferences</div>
+      <div class="section-sub">Make the dashboard yours — theme, accent colour, density, naming and comfort options. Saved to your profile, so it follows you to any device you sign in from. None of this affects trading logic.</div>
+    </div>
+  </div>
+  <div class="card card-pad">
+    <div class="pref-block">
+      <div class="pref-label">Accent colour</div>
+      <div class="swatch-row" id="accentSwatches"></div>
+      <div class="custom-color-row">
+        <label class="cc-item">
+          <span>Custom accent</span>
+          <input type="color" id="prefAccentCustom" value="#22a870">
+        </label>
+        <label class="cc-item">
+          <span>Highlight</span>
+          <input type="color" id="prefHighlight" value="#c9a227">
+        </label>
+      </div>
+    </div>
+
+    <div class="pref-block">
+      <div class="pref-label">Theme</div>
+      <div class="seg" id="themeSeg">
+        <button data-theme-key="midnight" class="active">Midnight</button>
+        <button data-theme-key="carbon">Carbon</button>
+        <button data-theme-key="navy">Navy</button>
+        <button data-theme-key="light">Light</button>
+      </div>
+    </div>
+
+    <div class="pref-block">
+      <div class="pref-label">Layout density</div>
+      <div class="seg" id="densitySeg">
+        <button data-density-key="comfortable" class="active">Comfortable</button>
+        <button data-density-key="compact">Compact</button>
+      </div>
+    </div>
+
+    <div class="prefs-grid">
+      <div class="field">
+        <label>Dashboard name</label>
+        <input type="text" id="prefName" maxlength="40" placeholder="BSC Spot Trading Bot">
+      </div>
+      <div class="field">
+        <label>Tagline <span style="font-size:10px;color:var(--text-faint);">shown under the name</span></label>
+        <input type="text" id="prefTagline" maxlength="80" placeholder="Spot only · No leverage · No margin">
+      </div>
+      <div class="field">
+        <label>Dashboard refresh (seconds)</label>
+        <input type="number" id="prefRefresh" min="2" max="120" step="1" value="3">
+      </div>
+      <div class="field">
+        <label>Show token prices in</label>
+        <select id="prefCurrency">
+          <option value="usd">USD</option>
+          <option value="bnb">BNB</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="pref-toggles">
+      <div class="toggle-row">
+        <div><div class="tg-title">Compact numbers</div><div class="desc">$1.2M instead of $1,200,000</div></div>
+        <label class="switch"><input type="checkbox" id="prefCompactNumbers" checked><span class="track"></span><span class="thumb"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div><div class="tg-title">Decorative star motif</div><div class="desc">Small geometric accents between sections</div></div>
+        <label class="switch"><input type="checkbox" id="prefStarMotif" checked><span class="track"></span><span class="thumb"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div><div class="tg-title">Confirm before closing a position</div><div class="desc">Extra safety prompt on manual close</div></div>
+        <label class="switch"><input type="checkbox" id="prefConfirmClose" checked><span class="track"></span><span class="thumb"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div><div class="tg-title">Confirm before enabling a coin</div><div class="desc">Prompt when adding from Coins Found</div></div>
+        <label class="switch"><input type="checkbox" id="prefConfirmEnable"><span class="track"></span><span class="thumb"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div><div class="tg-title">Show Coins Found section</div><div class="desc">Hide it if you only trade your own list</div></div>
+        <label class="switch"><input type="checkbox" id="prefShowDiscovery" checked><span class="track"></span><span class="thumb"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div><div class="tg-title">Show Profile Management</div><div class="desc">Admin section at the bottom of the page</div></div>
+        <label class="switch"><input type="checkbox" id="prefShowAdmin" checked><span class="track"></span><span class="thumb"></span></label>
+      </div>
+    </div>
+
+    <div class="controls-actions" style="margin-top:4px;">
+      <button class="btn btn-primary" id="savePrefsBtn">Save Preferences</button>
+      <button class="btn btn-ghost btn-sm" id="resetPrefsBtn">Reset to defaults</button>
+      <span class="scan-result" id="prefsMsg"></span>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
        SECTION 2 — ENTRY LOGIC (when to buy)
   ══════════════════════════════════════════════════════════ -->
   <div class="divider"><span class="star8"></span></div>
@@ -811,12 +989,13 @@
   <!-- ══════════════════════════════════════════════════════════
        SECTION 4 — COINS FOUND (discovery)
   ══════════════════════════════════════════════════════════ -->
+  <div id="discoverySection">
   <div class="divider"><span class="star8"></span></div>
   <div class="section-head">
     <div>
       <div class="section-eyebrow"><span class="star8"></span><span>Discovery</span></div>
       <div class="section-title">Coins Found</div>
-      <div class="section-sub">The bot sweeps live BSC pairs and shows only coins that pass your screening filters below — no more hunting for contract addresses. Enable the ones you want to trade, skip the rest, and ask for another 20 any time. <b>Always verify a coin is halal yourself before enabling it.</b></div>
+      <div class="section-sub">The bot sweeps live BSC pairs and shows only coins that pass your screening filters below — no more hunting for contract addresses. Enable the ones you want to trade, skip the rest, and ask for another 20 any time. <b>Always do your own research before enabling a coin.</b></div>
     </div>
   </div>
   <div class="card card-pad">
@@ -890,15 +1069,17 @@
     </div>
   </div>
 
+  </div><!-- /discoverySection -->
+
   <!-- ══════════════════════════════════════════════════════════
        SECTION 5 — TOKEN MANAGER
   ══════════════════════════════════════════════════════════ -->
   <div class="divider"><span class="star8"></span></div>
   <div class="section-head">
     <div>
-      <div class="section-eyebrow"><span class="star8"></span><span>Halal List</span></div>
+      <div class="section-eyebrow"><span class="star8"></span><span>Watchlist</span></div>
       <div class="section-title">Token Manager</div>
-      <div class="section-sub">Add a BEP20 contract address you've personally verified as halal. The bot only ever trades what's on this list.</div>
+      <div class="section-sub">Add any BEP20 contract address you've researched and approved. The bot only ever trades what's on this list.</div>
     </div>
   </div>
   <div class="card card-pad">
@@ -987,6 +1168,7 @@
   <!-- ══════════════════════════════════════════════════════════
        SECTION 6 — DANGER ZONE (profile management)
   ══════════════════════════════════════════════════════════ -->
+  <div id="profileAdminSection">
   <div class="divider"><span class="star8"></span></div>
   <div class="section-head">
     <div>
@@ -1007,9 +1189,11 @@
     </div>
   </div>
 
+  </div><!-- /profileAdminSection -->
+
   <footer>
-    Spot trading only · No leverage, margin, or interest-bearing positions · Not financial or religious advice.<br>
-    Consult a qualified Islamic finance scholar before trading. Never trade with money you cannot afford to lose.
+    Spot trading only · No leverage, margin, or borrowed funds · Not financial advice.<br>
+    Crypto trading carries significant risk. Never trade with money you cannot afford to lose.
   </footer>
 
 </div>
@@ -1045,7 +1229,7 @@
 
 <script>
 /* ============================================================
-   HALAL BSC TRADING BOT — DASHBOARD APP
+   BSC SPOT TRADING BOT — DASHBOARD APP
    Vanilla JS. No build step. Talks to the Express API below.
 ============================================================ */
 (function(){
@@ -1068,13 +1252,18 @@ let historyCache    = [];
 let historyFilter   = "all";
 let pollTimer       = null;
 // UI snapshots only — trade execution is server-side on every BSC block.
-const POLL_MS = 3000;
+let POLL_MS = 3000;
+let uiPrefs = null;          // active preference object
+let accentPresets = {};      // catalogue from the server
 
 // ── Formatting helpers ───────────────────────────────────
 function fmtBnb(n, dp=6){ return (n===null||n===undefined||isNaN(n)) ? "—" : Number(n).toFixed(dp); }
 function fmtUsd(n){
   if(n===null||n===undefined||isNaN(n)) return "—";
   const a = Math.abs(n);
+  if(uiPrefs && uiPrefs.compactNumbers === false){
+    return "$"+Number(n).toLocaleString(undefined,{maximumFractionDigits:a<1?6:2});
+  }
   if(a>=1e9) return "$"+(n/1e9).toFixed(2)+"B";
   if(a>=1e6) return "$"+(n/1e6).toFixed(2)+"M";
   if(a>=1e3) return "$"+(n/1e3).toFixed(1)+"K";
@@ -1112,6 +1301,75 @@ function fmtHeld(hours){
   if(hours<24) return hours.toFixed(1)+"h";
   return (hours/24).toFixed(1)+"d";
 }
+
+// ── Appearance engine ────────────────────────────────────
+const DEFAULT_PREFS = {
+  theme:"midnight", accentPreset:"jade", accentColor:"#22a870", highlightColor:"#c9a227",
+  density:"comfortable", showStarMotif:true,
+  dashboardName:"BSC Spot Trading Bot", tagline:"Spot only · No leverage · No margin",
+  refreshSeconds:3, priceCurrency:"usd", confirmBeforeClose:true, confirmBeforeEnable:false,
+  showDiscovery:true, showProfileAdmin:true, compactNumbers:true,
+};
+
+function hexToRgb(hex){
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex||""));
+  if(!m) return { r:34, g:168, b:112 };
+  const n = parseInt(m[1],16);
+  return { r:(n>>16)&255, g:(n>>8)&255, b:n&255 };
+}
+function shade(hex, amount){
+  const { r,g,b } = hexToRgb(hex);
+  const f = v => Math.max(0, Math.min(255, Math.round(v + amount)));
+  return `#${[f(r),f(g),f(b)].map(v=>v.toString(16).padStart(2,"0")).join("")}`;
+}
+function rgba(hex, alpha){
+  const { r,g,b } = hexToRgb(hex);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+/** Paint the whole UI from a preference object. Safe to call repeatedly. */
+function applyPreferences(prefs){
+  uiPrefs = { ...DEFAULT_PREFS, ...(prefs||{}) };
+  const root = document.documentElement;
+  const accent = uiPrefs.accentColor || DEFAULT_PREFS.accentColor;
+  const gold   = uiPrefs.highlightColor || DEFAULT_PREFS.highlightColor;
+
+  root.setAttribute("data-theme", uiPrefs.theme);
+  root.setAttribute("data-density", uiPrefs.density);
+  root.setAttribute("data-motif", uiPrefs.showStarMotif ? "on" : "off");
+
+  // The original palette variables are reused as the accent channel, so every
+  // existing component re-themes without touching component CSS.
+  root.style.setProperty("--jade", accent);
+  root.style.setProperty("--jade-dim", shade(accent, -26));
+  root.style.setProperty("--jade-glow", rgba(accent, 0.18));
+  root.style.setProperty("--gold", gold);
+  root.style.setProperty("--gold-dim", shade(gold, -26));
+  root.style.setProperty("--gold-glow", rgba(gold, 0.16));
+
+  const nameEl = document.getElementById("brandTitle");
+  if (nameEl) nameEl.textContent = uiPrefs.dashboardName;
+  document.title = `${uiPrefs.dashboardName} — Control Panel`;
+
+  const discovery = document.getElementById("discoverySection");
+  if (discovery) discovery.style.display = uiPrefs.showDiscovery ? "" : "none";
+  const admin = document.getElementById("profileAdminSection");
+  if (admin) admin.style.display = uiPrefs.showProfileAdmin ? "" : "none";
+
+  const nextPoll = Math.max(2, Number(uiPrefs.refreshSeconds) || 3) * 1000;
+  if (nextPoll !== POLL_MS) {
+    POLL_MS = nextPoll;
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = setInterval(refreshAll, POLL_MS); }
+  }
+  try { localStorage.setItem("uiPrefs", JSON.stringify(uiPrefs)); } catch { /* private mode */ }
+}
+
+// Apply the cached copy immediately so there is no unstyled flash before
+// /api/status returns the authoritative server-side preferences.
+try {
+  const cached = localStorage.getItem("uiPrefs");
+  if (cached) applyPreferences(JSON.parse(cached));
+} catch { /* ignore malformed cache */ }
 
 // ── Toasts ───────────────────────────────────────────────
 function toast(msg, isError){
@@ -1284,8 +1542,12 @@ document.getElementById("disconnectWalletBtn").addEventListener("click", async (
 
 // ── Topbar + Stats ribbon ────────────────────────────────
 function renderStatus(status){
+  if (status.settings?.uiPreferences) {
+    applyPreferences(status.settings.uiPreferences);
+    if (firstLoad) populatePrefInputs(uiPrefs);
+  }
   document.getElementById("profileLine").textContent =
-    (status.profile?.username ? status.profile.username + " · " : "") + "Spot only · No leverage · No interest";
+    (status.profile?.username ? status.profile.username + " · " : "") + (uiPrefs?.tagline || "");
 
   // Server-side live monitor: this controls execution speed. The browser's
   // 3-second refresh only displays snapshots; it never decides a trade.
@@ -1436,6 +1698,120 @@ document.getElementById("scanNowBtn").addEventListener("click", async () => {
     toast(e.message, true);
   }
   btn.disabled = false;
+});
+
+// ── Preferences form ─────────────────────────────────────
+function renderAccentSwatches(){
+  const row = document.getElementById("accentSwatches");
+  const entries = Object.entries(accentPresets);
+  if (!entries.length) return;
+  row.innerHTML = entries.map(([key, preset]) => `
+    <button class="swatch" data-accent="${esc(key)}" title="${esc(preset.label)}"
+            style="background:${esc(preset.color)}"></button>
+  `).join("");
+  row.querySelectorAll(".swatch").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const key = btn.dataset.accent;
+      const color = accentPresets[key].color;
+      document.getElementById("prefAccentCustom").value = color;
+      applyPreferences({ ...readPrefInputs(), accentPreset: key, accentColor: color });
+      markActiveSwatch(key);
+    });
+  });
+  markActiveSwatch(uiPrefs?.accentPreset);
+}
+function markActiveSwatch(key){
+  document.querySelectorAll("#accentSwatches .swatch").forEach(s => {
+    s.classList.toggle("active", s.dataset.accent === key);
+  });
+}
+function readPrefInputs(){
+  const custom = document.getElementById("prefAccentCustom").value;
+  const activeSwatch = document.querySelector("#accentSwatches .swatch.active");
+  const presetKey = activeSwatch ? activeSwatch.dataset.accent : "custom";
+  const presetColor = accentPresets[presetKey] ? accentPresets[presetKey].color : null;
+  // Nudging the custom picker away from the preset colour switches to custom.
+  const isCustom = !presetColor || presetColor.toLowerCase() !== custom.toLowerCase();
+  return {
+    theme: document.querySelector("#themeSeg button.active")?.dataset.themeKey || "midnight",
+    accentPreset: isCustom ? "custom" : presetKey,
+    accentColor: custom,
+    highlightColor: document.getElementById("prefHighlight").value,
+    density: document.querySelector("#densitySeg button.active")?.dataset.densityKey || "comfortable",
+    showStarMotif: document.getElementById("prefStarMotif").checked,
+    dashboardName: document.getElementById("prefName").value.trim() || DEFAULT_PREFS.dashboardName,
+    tagline: document.getElementById("prefTagline").value.trim(),
+    refreshSeconds: parseInt(document.getElementById("prefRefresh").value, 10) || 3,
+    priceCurrency: document.getElementById("prefCurrency").value,
+    confirmBeforeClose: document.getElementById("prefConfirmClose").checked,
+    confirmBeforeEnable: document.getElementById("prefConfirmEnable").checked,
+    showDiscovery: document.getElementById("prefShowDiscovery").checked,
+    showProfileAdmin: document.getElementById("prefShowAdmin").checked,
+    compactNumbers: document.getElementById("prefCompactNumbers").checked,
+  };
+}
+function populatePrefInputs(p){
+  document.getElementById("prefAccentCustom").value = p.accentColor;
+  document.getElementById("prefHighlight").value = p.highlightColor;
+  document.getElementById("prefName").value = p.dashboardName;
+  document.getElementById("prefTagline").value = p.tagline;
+  document.getElementById("prefRefresh").value = p.refreshSeconds;
+  document.getElementById("prefCurrency").value = p.priceCurrency;
+  document.getElementById("prefStarMotif").checked = !!p.showStarMotif;
+  document.getElementById("prefConfirmClose").checked = !!p.confirmBeforeClose;
+  document.getElementById("prefConfirmEnable").checked = !!p.confirmBeforeEnable;
+  document.getElementById("prefShowDiscovery").checked = !!p.showDiscovery;
+  document.getElementById("prefShowAdmin").checked = !!p.showProfileAdmin;
+  document.getElementById("prefCompactNumbers").checked = !!p.compactNumbers;
+  document.querySelectorAll("#themeSeg button").forEach(b =>
+    b.classList.toggle("active", b.dataset.themeKey === p.theme));
+  document.querySelectorAll("#densitySeg button").forEach(b =>
+    b.classList.toggle("active", b.dataset.densityKey === p.density));
+  markActiveSwatch(p.accentPreset);
+}
+
+// Live preview: every control repaints instantly, saving persists it.
+document.querySelectorAll("#themeSeg button").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("#themeSeg button").forEach(b => b.classList.toggle("active", b === btn));
+    applyPreferences(readPrefInputs());
+  });
+});
+document.querySelectorAll("#densitySeg button").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("#densitySeg button").forEach(b => b.classList.toggle("active", b === btn));
+    applyPreferences(readPrefInputs());
+  });
+});
+["prefAccentCustom","prefHighlight","prefStarMotif","prefName","prefShowDiscovery","prefShowAdmin","prefCompactNumbers"]
+  .forEach(id => document.getElementById(id).addEventListener("input", () => {
+    const next = readPrefInputs();
+    applyPreferences(next);
+    markActiveSwatch(next.accentPreset);
+  }));
+
+document.getElementById("savePrefsBtn").addEventListener("click", async () => {
+  const btn = document.getElementById("savePrefsBtn");
+  const msg = document.getElementById("prefsMsg");
+  btn.disabled = true; msg.textContent = "";
+  try {
+    const { settings } = await api("POST", "/api/settings/update", { uiPreferences: readPrefInputs() });
+    applyPreferences(settings.uiPreferences);
+    populatePrefInputs(uiPrefs);
+    toast("Preferences saved to your profile");
+    await refreshTokens();
+  } catch (e) { msg.textContent = e.message; toast(e.message, true); }
+  btn.disabled = false;
+});
+
+document.getElementById("resetPrefsBtn").addEventListener("click", async () => {
+  try {
+    const { settings } = await api("POST", "/api/settings/update", { uiPreferences: { ...DEFAULT_PREFS } });
+    applyPreferences(settings.uiPreferences);
+    populatePrefInputs(uiPrefs);
+    toast("Appearance reset to defaults");
+    await refreshTokens();
+  } catch (e) { toast(e.message, true); }
 });
 
 // ── Strategy cards (editable, add/delete) ─────────────────
@@ -1732,7 +2108,7 @@ function renderTokensTable(tokens){
         </div>
       </td>
       <td><a class="contract-link" href="${bscAddr(t.contract)}" target="_blank" rel="noopener">${shortAddr(t.contract)}</a></td>
-      <td class="mono">${fmtUsd(t.priceUsd)}</td>
+      <td class="mono">${(uiPrefs?.priceCurrency === "bnb" && t.priceNative != null) ? fmtBnb(t.priceNative, 8)+" BNB" : fmtUsd(t.priceUsd)}</td>
       <td><span class="chg ${pctClass(t.change24h)}">${fmtPct(t.change24h)}</span></td>
       <td class="mono">${fmtUsd(t.liquidityUsd)}</td>
       <td>
@@ -1758,7 +2134,7 @@ function renderTokensTable(tokens){
   tbody.querySelectorAll(".removeTokenBtn").forEach(btn => {
     btn.addEventListener("click", async () => {
       const symbol = btn.dataset.symbol;
-      if (!confirm(`Remove ${symbol} from your halal list? This does not close any open position.`)) return;
+      if (!confirm(`Remove ${symbol} from your watchlist? This does not close any open position.`)) return;
       try {
         await api("POST", "/api/tokens/remove", { symbol });
         toast(`${symbol} removed`);
@@ -1811,7 +2187,7 @@ confirmAddBtn.addEventListener("click", async () => {
   confirmAddBtn.disabled = true;
   try {
     await api("POST", "/api/tokens/add", { contract: previewedContract });
-    toast("Token added to your halal list");
+    toast("Token added to your watchlist");
     addTokenInput.value = "";
     tokenPreview.className = "token-preview";
     previewedContract = null;
@@ -1920,6 +2296,8 @@ function wireCoinButtons(){
     btn.dataset.wired = "1";
     btn.addEventListener("click", async () => {
       const contract = btn.dataset.contract, symbol = btn.dataset.symbol;
+      if (uiPrefs?.confirmBeforeEnable
+          && !confirm(`Add ${symbol} to your trading list?`)) return;
       btn.disabled = true; btn.textContent = "Enabling…";
       try {
         await api("POST", "/api/discover/enable", { contract });
@@ -2036,7 +2414,8 @@ function renderPositions(positions){
   document.querySelectorAll(".closePositionBtn").forEach(btn => {
     btn.addEventListener("click", async () => {
       const symbol = btn.dataset.symbol;
-      if (!confirm(`Close entire ${symbol} position now at market price?`)) return;
+      if (uiPrefs?.confirmBeforeClose !== false
+          && !confirm(`Close entire ${symbol} position now at market price?`)) return;
       btn.disabled = true; btn.textContent = "Closing…";
       try {
         const { result } = await api("POST", "/api/trade/close", { symbol });
@@ -2179,6 +2558,15 @@ async function refreshAll(){
 
 // ── Boot ─────────────────────────────────────────────────
 async function boot(){
+  // Appearance catalogue + saved preferences before anything renders
+  try {
+    const cfg = await api("GET", "/api/settings");
+    accentPresets = (cfg.appearance && cfg.appearance.accentPresets) || {};
+    if (cfg.settings?.uiPreferences) applyPreferences(cfg.settings.uiPreferences);
+    renderAccentSwatches();
+    populatePrefInputs(uiPrefs || DEFAULT_PREFS);
+  } catch (e) { console.warn("Preferences load failed:", e.message); }
+
   await refreshStrategies();
   await refreshAll();
   await refreshProfiles();

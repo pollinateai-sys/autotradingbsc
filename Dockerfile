@@ -1,7 +1,7 @@
 # ============================================================
-#  Halal BSC Trading Bot — Docker image
-#  Build:  docker build -t halal-bot .
-#  Run:    docker run -d --env-file .env -p 3000:3000 --name halal-bot halal-bot
+#  BSC Spot Trading Bot — Docker image
+#  Build:  docker build -t tradingbot .
+#  Run:    docker run -d --env-file .env -p 3000:3000 --name tradingbot tradingbot
 # ============================================================
 FROM node:20-alpine
 

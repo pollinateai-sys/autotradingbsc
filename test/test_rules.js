@@ -273,6 +273,46 @@ async function testDiscoveryPagination() {
   assert(paged.offset === 2 && paged.coins[0].contract !== first.coins[0].contract, "Offset paginates into the next slice");
 }
 
+// ── 7. UI preferences (theme + customization) ──────────────
+function testUiPreferences() {
+  console.log("\n── UI preference validation ──");
+  const {
+    validateUiPreferences, DEFAULT_UI_PREFERENCES, ACCENT_PRESETS,
+  } = require("../api/lib/preferences");
+
+  const defaults = validateUiPreferences(DEFAULT_UI_PREFERENCES);
+  assert(defaults.theme === "midnight" && defaults.accentPreset === "jade", "Defaults validate cleanly");
+  assert(!/halal/i.test(JSON.stringify(defaults)), "Default branding contains no religious wording");
+
+  const custom = validateUiPreferences({ accentPreset: "custom", accentColor: "#FF8800" });
+  assert(custom.accentColor === "#ff8800", "Custom accent colour is kept and normalized");
+
+  // Selecting a preset must override any stale custom colour, so the client
+  // can always trust accentColor without re-resolving the preset itself.
+  const preset = validateUiPreferences({ accentPreset: "violet", accentColor: "#000000" });
+  assert(preset.accentColor === ACCENT_PRESETS.violet.color, "Preset selection syncs accentColor to the preset");
+
+  const partial = validateUiPreferences({ density: "compact" });
+  assert(partial.density === "compact" && partial.dashboardName === DEFAULT_UI_PREFERENCES.dashboardName,
+    "Partial updates keep every other preference at its default");
+
+  const bad = [
+    [{ theme: "neon" }, "unknown theme"],
+    [{ accentPreset: "custom", accentColor: "red" }, "non-hex accent colour"],
+    [{ accentPreset: "rainbow" }, "unknown accent preset"],
+    [{ density: "roomy" }, "unknown density"],
+    [{ refreshSeconds: 0 }, "refresh below 2s"],
+    [{ refreshSeconds: 999 }, "refresh above 120s"],
+    [{ dashboardName: "x" }, "dashboard name too short"],
+    [{ priceCurrency: "eur" }, "unsupported display currency"],
+  ];
+  for (const [input, label] of bad) {
+    let threw = false;
+    try { validateUiPreferences(input); } catch { threw = true; }
+    assert(threw, `Rejected: ${label}`);
+  }
+}
+
 async function main() {
   testStrategyValidation();
   await testStrategyCrud();
@@ -281,6 +321,7 @@ async function main() {
   await testScannerGating();
   await testDiscoveryFilters();
   await testDiscoveryPagination();
+  testUiPreferences();
 
   console.log("\n" + "─".repeat(50));
   if (failures === 0) { console.log("✅ ALL STRATEGY/RULES TESTS PASSED"); process.exit(0); }

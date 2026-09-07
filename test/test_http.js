@@ -312,11 +312,36 @@ async function main() {
     r = await req("GET", "/api/discover", null, bob.token);
     assert(r.json.dismissedCount === 0, "Bob has his own (empty) skip list — Alice's dismissals don't leak");
 
+    console.log("\n── Appearance & preferences over HTTP ──");
+    r = await req("GET", "/api/settings", null, alice.token);
+    assert(r.status === 200 && r.json.appearance && r.json.appearance.accentPresets.jade,
+      "GET /api/settings exposes the accent preset catalogue");
+    assert(r.json.settings.uiPreferences.theme === "midnight", "Profiles start on the default midnight theme");
+
+    r = await req("POST", "/api/settings/update", {
+      uiPreferences: { theme: "light", accentPreset: "violet", density: "compact", dashboardName: "My Trading Desk", refreshSeconds: 10 },
+    }, alice.token);
+    assert(r.status === 200 && r.json.settings.uiPreferences.theme === "light", "Saving a theme persists it");
+    assert(r.json.settings.uiPreferences.accentColor === "#8b5cf6", "Preset selection resolves to its accent colour");
+    assert(r.json.settings.uiPreferences.dashboardName === "My Trading Desk", "Custom dashboard name persists");
+
+    r = await req("POST", "/api/settings/update", { uiPreferences: { theme: "neon" } }, alice.token);
+    assert(r.status === 400, "Invalid theme rejected → 400");
+    r = await req("POST", "/api/settings/update", { uiPreferences: { accentPreset: "custom", accentColor: "notacolour" } }, alice.token);
+    assert(r.status === 400, "Invalid accent colour rejected → 400");
+
+    r = await req("GET", "/api/status", null, alice.token);
+    assert(r.json.settings.uiPreferences.density === "compact", "Status reflects saved preferences for any device");
+
+    r = await req("GET", "/api/status", null, bob.token);
+    assert(r.json.settings.uiPreferences.theme === "midnight", "Bob keeps his own theme — preferences are per profile");
+
     console.log("\n── Static dashboard ──");
     const staticRes = await fetch(BASE + "/");
     assert(staticRes.status === 200, "GET / serves the dashboard");
     const html = await staticRes.text();
-    assert(html.includes("Halal BSC Trading Bot"), "Dashboard HTML contains expected title");
+    assert(html.includes("BSC Spot Trading Bot"), "Dashboard HTML contains expected title");
+    assert(!/halal|islamic|🕌/i.test(html), "Dashboard contains no religious branding (neutral for all users)");
 
   } finally {
     server.close();

@@ -1,5 +1,5 @@
 // ============================================================
-//  HALAL BSC TRADING BOT — Express App
+//  BSC SPOT TRADING BOT — Express App
 //  Multi-profile: each person authenticates with their own
 //  personal API key (x-api-key header), which scopes every
 //  route to their own wallet, settings, tokens, and positions.

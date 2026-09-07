@@ -1,7 +1,7 @@
 {
-  "name": "halal-bsc-trading-bot",
-  "version": "2.2.0",
-  "description": "Halal BEP20 spot trading bot with live every-block SL/TP monitoring, editable strategies and entry rules, automatic BSC coin discovery, and a multi-profile dashboard.",
+  "name": "bsc-spot-trading-bot",
+  "version": "3.0.0",
+  "description": "Professional BEP20 spot trading bot with live every-block SL/TP monitoring, editable strategies and entry rules, automatic BSC coin discovery, customizable themes, and a multi-profile dashboard.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

@@ -6,6 +6,7 @@
 const DEFAULT_TOKENS = require("../../api/config/tokens");
 const { DEFAULT_ENTRY_RULES } = require("../../api/lib/entryrules");
 const { DEFAULT_DISCOVERY_FILTERS } = require("../../api/lib/discovery");
+const { DEFAULT_UI_PREFERENCES } = require("../../api/lib/preferences");
 const {
   hashPassword, verifyPassword, hashToken, generateSessionToken, newProfileId,
 } = require("../../api/lib/crypto"); // pure functions (bcrypt/sha256), safe to use for real in tests
@@ -134,6 +135,9 @@ async function getSettings(profileId) {
   } else {
     merged.discoveryFilters = { ...DEFAULT_DISCOVERY_FILTERS, ...merged.discoveryFilters };
   }
+  merged.uiPreferences = (merged.uiPreferences && typeof merged.uiPreferences === "object")
+    ? { ...DEFAULT_UI_PREFERENCES, ...merged.uiPreferences }
+    : JSON.parse(JSON.stringify(DEFAULT_UI_PREFERENCES));
   return merged;
 }
 async function updateSettings(profileId, patch) {

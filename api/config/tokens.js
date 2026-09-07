@@ -1,9 +1,10 @@
 // ============================================================
-//  YOUR PERSONAL HALAL TOKEN LIST
-//  Add tokens YOU have verified as halal.
+//  DEFAULT WATCHLIST — seed for brand-new profiles only
+//  Established BEP20 majors, used purely as a starting point.
+//  Each profile edits its own list from the dashboard afterwards.
 //  enabled: false = paused (not traded until you enable it)
 // ============================================================
-const HALAL_TOKENS = [
+const DEFAULT_TOKENS = [
   {
     symbol:   "BTCB",
     name:     "Wrapped Bitcoin (BEP20)",
@@ -34,7 +35,7 @@ const HALAL_TOKENS = [
     contract: "0x3EE2200Efb3400fAbB9AacF31297cBdD1d435D47",
     enabled:  true,
   },
-  // ── ADD YOUR OWN VERIFIED HALAL TOKENS BELOW ─────────────
+  // ── ADD YOUR OWN DEFAULT TOKENS BELOW ────────────────────
   // { symbol: "TOKEN", name: "Full Name", contract: "0x...", enabled: true },
 ];
-module.exports = HALAL_TOKENS;
+module.exports = DEFAULT_TOKENS;

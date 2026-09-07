@@ -22,6 +22,7 @@ router.get("/", requireProfile, async (req, res) => {
       return {
         ...t,
         priceUsd:     info?.priceUsd     ?? null,
+        priceNative:  info?.priceNative  ?? null,
         change24h:    info?.change24h    ?? null,
         liquidityUsd: info?.liquidityUsd ?? null,
         volume24h:    info?.volume24h    ?? null,
